@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""
+CLI wrapper for cleaning MKV files safely.
+"""
+
+from titan_core.domains.media.mkv_clean import vid_mkv_clean
+
+if __name__ == "__main__":
+    vid_mkv_clean()

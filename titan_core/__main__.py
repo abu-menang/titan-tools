@@ -10,7 +10,7 @@ import importlib.metadata
 import sys
 import os
 from pathlib import Path
-from titan_tools.common import color_text
+from titan_core.common import color_text
 
 
 def get_titan_tools_version():

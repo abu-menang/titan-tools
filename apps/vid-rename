@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""
+vid-rename
+
+CLI wrapper for batch video renaming using Titan Core.
+"""
+
+from titan_core.cli.base import build_base_parser, run_cli
+from titan_core.core.logging import get_logger
+
+log = get_logger(__name__)
+
+def main(args):
+    log.info("Starting rename operation...")
+    if args.dry_run:
+        log.info("Dry-run mode: no files will be modified.")
+    # Your rename logic here
+    return 0
+
+if __name__ == "__main__":
+    parser = build_base_parser("Rename video files in a directory.")
+    run_cli(main, parser)

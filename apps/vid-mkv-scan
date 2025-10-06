@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""
+CLI wrapper for scanning MKV metadata from a directory of video files.
+"""
+
+from titan_core.domains.media.scan import vid_mkv_scan
+
+if __name__ == "__main__":
+    vid_mkv_scan()

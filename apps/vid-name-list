@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""
+vid-name-list
+
+List and export video file names from directories.
+"""
+
+from titan_core.cli.base import build_base_parser, run_cli
+from titan_core.core.logging import get_logger
+from titan_core.domains.media.scan import scan_videos  # hypothetical function
+
+log = get_logger(__name__)
+
+def main(args):
+    log.info("📂 Starting video name listing...")
+    results = scan_videos(args.output, dry_run=args.dry_run)
+    log.info(f"✅ Scan completed: {len(results)} files found.")
+    return 0
+
+if __name__ == "__main__":
+    parser = build_base_parser("List and export video filenames.")
+    run_cli(main, parser)

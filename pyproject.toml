@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "titan-tools"
+version = "0.1.0"
+description = "Shared multi-domain automation toolkit for media and file management"
+readme = "README.md"
+requires-python = ">=3.10"
+
+authors = [
+  { name = "Ashwin Nair", email = "example@email.com" }
+]
+
+license = "MIT"
+
+# Core dependencies (adjust as your scripts evolve)
+dependencies = [
+  "argcomplete>=3.0",
+  "rich>=13.0",
+  "tqdm>=4.0",
+  "pandas>=2.0",
+  "pydantic>=2.0",
+  "pyyaml>=6.0",
+  "send2trash>=1.8",  # optional safe delete
+]
+
+# Optional development dependencies
+[project.optional-dependencies]
+dev = [
+  "black>=24.0",
+  "flake8>=7.0",
+  "mypy>=1.5",
+  "pytest>=8.0",
+  "build>=1.2",
+]
+
+# CLI Entry points (your renamed commands)
+[project.scripts]
+vid-name-list = "titan_core.domains.media.scan:vid_name_list"
+vid-mkv-scan  = "titan_core.domains.media.scan:vid_mkv_scan"
+vid-mkv-clean = "titan_core.domains.media.mkv_clean:vid_mkv_clean"
+vid-rename    = "titan_core.domains.media.rename:vid_rename"
+
+[tool.setuptools]
+packages = ["titan_core"]
+include-package-data = true
+
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
