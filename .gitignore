@@ -1,3 +1,84 @@
+# ==========================================================
+# 🧱 Titan Tools Project Git Ignore
+# ==========================================================
+# Ignore Python cache, compiled, and temporary files
 __pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+*.pkl
+*.tmp
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+pip-wheel-metadata/
+
+# Backup and installer-generated files
+backup/
+*_bkup_*.py
+*.bak
+*.old
+*.swp
+*.swo
+
+# Logs and output
 *.log
-*.pyc
+*.csv
+*.json
+*.txt
+!README*.txt
+!LICENSE.txt
+
+# Output / results directories from Titan Tools
+*_scan/
+*_lister/
+*_renamer/
+*_cleaner/
+*_summary/
+*_output/
+*_results/
+
+# IDE / Editor metadata
+.vscode/
+.vscode-insiders/
+.idea/
+.spyproject/
+.kate-swp
+.kateproject
+*.kate-swp
+*.kdev4
+
+# System / Desktop metadata
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Temporary / OS / hidden files
+*~
+*.orig
+*.rej
+*.out
+*.bak
+*.log.old
+
+# Git and versioning
+.gitignore
+.gitmodules
+.gitconfig
+
+# Python packaging
+MANIFEST
+*.spec
+*.pyproject
+*.cfg
+*.lock
