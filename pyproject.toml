@@ -13,7 +13,15 @@ authors = [
   { name = "Ashwin Nair", email = "example@email.com" }
 ]
 
-license = "MIT"
+license = { text = "MIT" }  # SPDX identifiers are preferred over bare strings
+
+keywords = ["media", "automation", "file", "cli", "mkv", "rename", "scan"]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+]
 
 # Core dependencies (adjust as your scripts evolve)
 dependencies = [
@@ -23,10 +31,16 @@ dependencies = [
   "pandas>=2.0",
   "pydantic>=2.0",
   "pyyaml>=6.0",
-  "send2trash>=1.8",  # optional safe delete
+  "send2trash>=1.8",
+  "typing-extensions>=4.0; python_version<'3.11'",
 ]
 
-# Optional development dependencies
+# URLs for PyPI or docs visibility
+[project.urls]
+Homepage = "https://github.com/abu-menang/titan-tools"
+Source = "https://github.com/abu-menang/titan-tools"
+Issues = "https://github.com/abu-menang/titan-tools/issues"
+
 [project.optional-dependencies]
 dev = [
   "black>=24.0",
@@ -34,19 +48,28 @@ dev = [
   "mypy>=1.5",
   "pytest>=8.0",
   "build>=1.2",
+  "ruff>=0.5",  # optional but powerful linter
 ]
 
-# CLI Entry points (your renamed commands)
+# CLI entry points
 [project.scripts]
-vid-name-list = "titan_core.domains.media.scan:vid_name_list"
-vid-mkv-scan  = "titan_core.domains.media.scan:vid_mkv_scan"
-vid-mkv-clean = "titan_core.domains.media.mkv_clean:vid_mkv_clean"
-vid-rename    = "titan_core.domains.media.rename:vid_rename"
+titan-config = "common.shared.loader:cli_main"
+vid-mkv-scan = "apps.cli:cli_vid_mkv_scan"
+vid-mkv-clean = "apps.cli:cli_vid_mkv_clean"
+vid-rename = "apps.cli:cli_vid_rename"
+file-scan = "file.scanner:cli"
+file-rename = "file.renamer:cli"
+
+# Package discovery
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["common*", "video*", "apps*", "file*"]
+exclude = ["tests", "docs", "media", "dist"]
 
 [tool.setuptools]
-packages = ["titan_core"]
 include-package-data = true
 
+# Formatting / QA tools
 [tool.black]
 line-length = 100
 
@@ -56,4 +79,3 @@ profile = "black"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
-
