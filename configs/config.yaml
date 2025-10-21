@@ -1,0 +1,45 @@
+# Unified configuration for Titan Tools.
+# Centralises task settings and logging defaults in a single file.
+
+logging:
+  # Default logging level for the entire toolkit. Accepts standard logging levels.
+  level: DEBUG
+  # Allow overriding Rich-based logging. Values: true, false, or "auto" to auto-detect.
+  use_rich: auto
+  # Directory for log files emitted by the logging setup.
+  log_dir: "./logs"
+  # Prefix applied to generated log filenames.
+  file_prefix: "titan"
+
+task_defaults:
+  roots:
+    - "/drive/CRONUS/downloads/torrent/completed/direct/manga/"
+  output_root: "./00_reports"
+
+tasks:
+  vid_mkv_clean:
+    dry_run: false
+    logging:
+      file_prefix: "mkv_clean"
+
+  file_scan:
+    base_name: "file_scan"
+    logging:
+      file_prefix: "file_scan"
+
+  file_rename:
+    base_name: "file_scan"
+    dry_run: false
+    logging:
+      file_prefix: "file_rename"
+
+  vid_mkv_scan:
+    dry_run: false
+    logging:
+      file_prefix: "mkv_scan"
+
+  vid_rename:
+    dry_run: false
+    no_meta: false
+    logging:
+      file_prefix: "rename"
