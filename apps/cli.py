@@ -18,9 +18,10 @@ except Exception:  # pragma: no cover
 
 from common.base.logging import setup_logging
 from common.shared.loader import load_task_config
-from video.mkv_clean import vid_mkv_clean
-from video.rename import vid_rename
+from video.mkv_clean import resolve_tracks_csvs, vid_mkv_clean
+from video.rename import resolve_name_list_csvs, vid_rename
 from video.scan import vid_mkv_scan
+from video.hevc_convert import hevc_convert
 
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "config.yaml"
@@ -103,6 +104,7 @@ def cli_vid_mkv_scan(argv: Optional[Iterable[str]] = None) -> int:
         output_root=output_root,
         write_csv_file=not args.no_write,
         dry_run=args.dry_run or dry_run_cfg,
+        batch_size=cfg.get("batch_size"),
     )
     return 0
 
@@ -115,16 +117,32 @@ def cli_vid_mkv_clean(argv: Optional[Iterable[str]] = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     cfg = _load_task_payload("vid_mkv_clean", args.config)
-    roots = _as_paths(cfg.get("roots", [])) if cfg.get("roots") else None
+    roots = _as_paths(cfg.get("roots", []))
+    if not roots:
+        raise SystemExit("vid_mkv_clean config requires at least one root")
+
     output_dir = Path(cfg["output_dir"]) if cfg.get("output_dir") else None
+    output_root = Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None
     dry_run_cfg = bool(cfg.get("dry_run", False))
-    vid_mkv_clean(
-        def_file=Path(cfg["definition"]) if cfg.get("definition") else None,
-        roots=roots,
-        output_dir=output_dir,
-        output_root=Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None,
-        dry_run=args.dry_run or dry_run_cfg,
-    )
+    definition_override = cfg.get("definition")
+    csv_parts = cfg.get("csv_part") or []
+
+    if definition_override:
+        targets = [Path(definition_override).expanduser().resolve()]
+    else:
+        part_sequence = csv_parts if csv_parts else None
+        targets = resolve_tracks_csvs(roots, output_root, part_sequence)
+        if not targets:
+            raise SystemExit("Could not locate mkv_scan track CSVs for the requested configuration.")
+
+    for definition_path in targets:
+        vid_mkv_clean(
+            def_file=definition_path,
+            roots=roots,
+            output_dir=output_dir,
+            output_root=output_root,
+            dry_run=args.dry_run or dry_run_cfg,
+        )
     return 0
 
 
@@ -150,19 +168,60 @@ def cli_vid_rename(argv: Optional[Iterable[str]] = None) -> int:
     output_root = Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None
     dry_run_cfg = bool(cfg.get("dry_run", False))
     update_metadata = not bool(cfg.get("no_meta", False)) and not args.no_meta
+    csv_parts = cfg.get("csv_part") or []
     if args.name_list:
-        name_list_path = Path(args.name_list).expanduser().resolve()
-    elif cfg.get("mapping"):
-        name_list_path = Path(cfg["mapping"]).expanduser().resolve()
+        targets = [Path(args.name_list).expanduser().resolve()]
     else:
-        name_list_path = None
-    vid_rename(
-        name_list_file=name_list_path,
+        mapping_override = cfg.get("mapping")
+        if mapping_override:
+            targets = [Path(mapping_override).expanduser().resolve()]
+        else:
+            part_sequence = csv_parts if csv_parts else None
+            targets = resolve_name_list_csvs(roots or [], output_root, part_sequence)
+            if not targets:
+                raise SystemExit("Could not locate mkv_scan name list CSVs for the requested configuration.")
+
+    for name_list_path in targets:
+        vid_rename(
+            name_list_file=name_list_path,
+            roots=roots,
+            output_dir=output_dir,
+            output_root=output_root,
+            update_metadata=update_metadata,
+            dry_run=args.dry_run or dry_run_cfg,
+        )
+    return 0
+
+
+def cli_vid_hevc_convert(argv: Optional[Iterable[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Convert non-HEVC MKVs to HEVC using ffmpeg.")
+    parser.add_argument("--config", "-c", help="Path to configuration YAML (defaults to repo config).")
+    parser.add_argument("--dry-run", action="store_true", help="Simulate conversions without writing files.")
+    parser.add_argument("--preset", help="Override encoder preset (defaults to config value).")
+    parser.add_argument("--crf", type=int, help="Override encoder CRF (defaults to config value).")
+    _enable_autocomplete(parser)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    cfg = _load_task_payload("vid_hevc_convert", args.config)
+    roots = _as_paths(cfg.get("roots", []))
+    if not roots:
+        raise SystemExit("vid_hevc_convert config requires at least one root")
+
+    output_dir = Path(cfg["output_dir"]) if cfg.get("output_dir") else None
+    output_root = Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None
+    dry_run_cfg = bool(cfg.get("dry_run", False))
+    csv_parts = cfg.get("csv_part") or [0]
+    preset_cfg = args.preset or cfg.get("preset") or "slow"
+    crf_cfg = args.crf if args.crf is not None else int(cfg.get("crf", 23))
+
+    hevc_convert(
         roots=roots,
         output_dir=output_dir,
         output_root=output_root,
-        update_metadata=update_metadata,
+        csv_parts=csv_parts,
         dry_run=args.dry_run or dry_run_cfg,
+        preset=preset_cfg,
+        crf=crf_cfg,
     )
     return 0
 
@@ -171,4 +230,5 @@ __all__ = [
     "cli_vid_mkv_clean",
     "cli_vid_mkv_scan",
     "cli_vid_rename",
+    "cli_vid_hevc_convert",
 ]

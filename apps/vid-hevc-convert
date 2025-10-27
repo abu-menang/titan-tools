@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Repository convenience wrapper for vid-rename.
+# Repository convenience wrapper for vid-hevc-convert.
 # Activates the local virtualenv if present, loads YAML via common.shared.loader,
 # and executes the underlying Python workflow.
 
@@ -18,7 +18,7 @@ fi
 export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 
 CONFIG_PATH="${1:-$ROOT_DIR/configs/config.yaml}"
-CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_rename "$CONFIG_PATH")"
+CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_hevc_convert "$CONFIG_PATH")"
 
 "$PYTHON_BIN" - "$CONFIG_PAYLOAD" <<'PY'
 import base64
@@ -49,34 +49,24 @@ setup_logging(
     file_prefix=logging_cfg.get("file_prefix"),
 )
 
-rename_module = importlib.import_module("video.rename")
-vid_rename = rename_module.vid_rename
-resolve_name_list_csvs = rename_module.resolve_name_list_csvs
+convert_module = importlib.import_module("video.hevc_convert")
+hevc_convert = convert_module.hevc_convert
 
 roots = [Path(p).expanduser() for p in cfg.get("roots", [])]
 if not roots:
-    raise SystemExit("vid_rename config requires at least one root")
+    raise SystemExit("vid_hevc_convert requires at least one root directory")
 
 output_dir = Path(cfg["output_dir"]).expanduser() if cfg.get("output_dir") else None
 output_root = Path(cfg["__output_root__"]).expanduser() if cfg.get("__output_root__") else None
-csv_parts = cfg.get("csv_part") or []
+csv_parts = cfg.get("csv_part") or [0]
 
-name_list_override = cfg.get("mapping")
-if name_list_override:
-    targets = [Path(name_list_override).expanduser()]
-else:
-    part_sequence = csv_parts if csv_parts else None
-    targets = resolve_name_list_csvs(roots, output_root, part_sequence)
-    if not targets:
-        raise SystemExit("Could not locate mkv_scan name list CSVs for the requested configuration.")
-
-for name_list_path in targets:
-    vid_rename(
-        roots=roots,
-        output_dir=output_dir,
-        output_root=output_root,
-        name_list_file=name_list_path,
-        update_metadata=not bool(cfg.get("no_meta", False)),
-        dry_run=bool(cfg.get("dry_run", False)),
-    )
+hevc_convert(
+    roots=roots,
+    output_dir=output_dir,
+    output_root=output_root,
+    csv_parts=csv_parts,
+    dry_run=bool(cfg.get("dry_run", False)),
+    preset=cfg.get("preset") or "slow",
+    crf=int(cfg.get("crf", 23)),
+)
 PY

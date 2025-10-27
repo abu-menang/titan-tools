@@ -37,9 +37,12 @@ setup_logging(
     file_prefix=logging_cfg.get("file_prefix"),
 )
 
-rename_from_scan = importlib.import_module("file.renamer").rename_from_scan
+renamer_module = importlib.import_module("file.renamer")
+rename_from_scan = renamer_module.rename_from_scan
+resolve_scan_csvs = renamer_module.resolve_scan_csvs
+resolve_output_directory = importlib.import_module("file.utils").resolve_output_directory
 
-roots = [Path(p) for p in cfg.get("roots", [])]
+roots = [Path(p).expanduser() for p in cfg.get("roots", [])]
 if not roots:
     raise SystemExit("file_rename requires at least one root directory")
 
@@ -51,10 +54,32 @@ if output_dir and output_dir.name == "file_rename":
 elif output_dir is None and cfg.get("__output_root__"):
     output_dir = Path(cfg["__output_root__"]).expanduser()
 
-rename_from_scan(
-    root=root,
-    output_dir=output_dir,
-    base_name=base_name,
-    dry_run=bool(cfg.get("dry_run", False)),
-)
+csv_parts = cfg.get("csv_part") or []
+base_output = resolve_output_directory(root, output_dir)
+
+if csv_parts:
+    try:
+        targets = resolve_scan_csvs(base_output, base_name, csv_parts)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc))
+else:
+    targets = []
+
+if not targets:
+    rename_from_scan(
+        root=root,
+        csv_file=None,
+        output_dir=output_dir,
+        base_name=base_name,
+        dry_run=bool(cfg.get("dry_run", False)),
+    )
+else:
+    for csv_path in targets:
+        rename_from_scan(
+            root=root,
+            csv_file=csv_path,
+            output_dir=output_dir,
+            base_name=base_name,
+            dry_run=bool(cfg.get("dry_run", False)),
+        )
 PY

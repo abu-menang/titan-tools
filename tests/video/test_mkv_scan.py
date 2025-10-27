@@ -54,20 +54,20 @@ def test_extract_track_rows_generates_expected_fields() -> None:
     audio_row = rows[1]
     subtitle_row = rows[2]
 
-    assert video_row["file"] == "/media/example.mkv"
+    assert video_row["path"] == "/media/example.mkv"
     assert video_row["filename"] == "example.mkv"
     assert video_row["type"] == "video"
-    assert video_row["width"] == 1920
-    assert video_row["height"] == 1080
+    assert video_row["width"] == "1920"
+    assert video_row["height"] == "1080"
     assert video_row["default"] == "true"
     assert video_row["forced"] == "false"
-    assert video_row["suggested_rename"] == "example"
+    assert video_row["edited_name"] == "example"
 
     assert audio_row["type"] == "audio"
-    assert audio_row["channels"] == 2
-    assert audio_row["sample_rate"] == 48000
-    assert audio_row["suggested_rename"] == "JPN (A_AAC)"
+    assert audio_row["channels"] == "2"
+    assert audio_row["sample_rate"] == "48000"
+    assert audio_row["edited_name"] == "JPN (A_AAC)"
 
     assert subtitle_row["type"] == "subtitles"
     assert subtitle_row["lang"] == "eng"
-    assert subtitle_row["suggested_rename"] == "ENG (S_TEXT/ASS)"
+    assert subtitle_row["edited_name"] == "ENG (S_TEXT/ASS)"

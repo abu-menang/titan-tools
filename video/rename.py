@@ -4,7 +4,7 @@ video.rename
 Batch rename and metadata update tool for Titan Tools.
 
 Supports:
- - Applying edits recorded in the mkv_scan_name_list CSV export
+ - Applying edits recorded in the mkv_scan_name_list report export
  - Updating MKV/MP4 title metadata
  - Dry-run safety, revert CSV generation, and textual summaries
 """
@@ -16,13 +16,13 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from common.base.file_io import open_file
 from common.base.fs import ensure_dir, human_size
 from common.base.logging import get_logger
 from common.base.ops import run_command, move_file
-from common.shared.report import export_report
+from common.shared.report import export_report, discover_latest_csvs, load_tabular_rows
 from common.shared.utils import Progress
 
 log = get_logger(__name__)
@@ -50,36 +50,45 @@ def _find_latest_name_list(
     roots: List[Path],
     output_root: Optional[Path | str],
 ) -> Optional[Path]:
-    stamped: List[tuple[float, Path]] = []
+    matches = resolve_name_list_csvs(roots, output_root)
+    return matches[0] if matches else None
+
+
+def resolve_name_list_csvs(
+    roots: List[Path],
+    output_root: Optional[Path | str],
+    csv_parts: Optional[Iterable[int]] = None,
+) -> List[Path]:
+    report_dirs: List[Path] = []
     for root in roots:
         reports_dir = _resolve_reports_dir(root, output_root)
         if not reports_dir.exists():
             log.debug(f"Reports directory not found for root {root}: {reports_dir}")
             continue
-        for candidate in sorted(reports_dir.glob(NAME_LIST_PATTERN)):
-            try:
-                stamped.append((candidate.stat().st_mtime, candidate))
-            except FileNotFoundError:
-                continue
+        report_dirs.append(reports_dir)
 
-    if not stamped:
-        return None
-
-    _, latest = max(stamped, key=lambda item: item[0])
-    return latest
+    return discover_latest_csvs(report_dirs, "mkv_scan_name_list", csv_parts)
 
 
-def _load_name_list_rows(csv_path: Path) -> tuple[List[Dict[str, str]], List[str]]:
-    csv_path = csv_path.resolve()
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Name list CSV not found: {csv_path}")
+def _load_name_list_rows(report_path: Path) -> tuple[List[Dict[str, str]], List[str]]:
+    report_path = report_path.resolve()
+    if not report_path.exists():
+        raise FileNotFoundError(f"Name list report not found: {report_path}")
 
-    with open_file(csv_path, "r", newline="") as handle:
-        reader = csv.DictReader(handle)
-        fieldnames = reader.fieldnames or []
-        rows = [row for row in reader if row.get("path")]
+    rows, fieldnames = load_tabular_rows(report_path)
 
-    return rows, fieldnames
+    normalized_rows: List[Dict[str, str]] = []
+    for row in rows:
+        if "title" not in row and "metadata_title" in row:
+            row["title"] = row.get("metadata_title", "")
+        if row.get("path"):
+            normalized_rows.append(row)
+
+    normalized_fieldnames = [
+        "title" if name == "metadata_title" else name for name in fieldnames
+    ]
+
+    return normalized_rows, normalized_fieldnames
 
 
 def _probe_metadata_title(file_path: Path) -> str:
@@ -174,13 +183,13 @@ def vid_rename(
     dry_run: bool = False,
 ) -> List[Dict[str, str]]:
     """
-    Apply renames and metadata updates described in the mkv_scan name list CSV.
+    Apply renames and metadata updates described in the mkv_scan name list report.
 
     Args:
-        name_list_file: Optional explicit path to a mkv_scan_name_list CSV.
+        name_list_file: Optional explicit path to a mkv_scan_name_list report.
         roots: Directories whose reports should be inspected for name lists.
-        output_dir: Directory for reports and backups (defaults beside CSV).
-        output_root: Optional reports subdirectory (used to locate CSV when
+        output_dir: Directory for reports and backups (defaults beside the report).
+        output_root: Optional reports subdirectory (used to locate the report when
                      name_list_file is omitted).
         update_metadata: If True, update embedded titles for edited entries.
         dry_run: Simulate actions without writing changes.
@@ -196,26 +205,26 @@ def vid_rename(
     else:
         name_list_path = _find_latest_name_list(resolved_roots, output_root)
         if name_list_path is None:
-            log.error("❌ Could not locate any mkv_scan_name_list CSV under reports directories.")
+            log.error("❌ Could not locate any mkv_scan_name_list report under reports directories.")
             return []
 
     if not name_list_path.exists():
-        log.error(f"❌ Name list CSV not found: {name_list_path}")
+        log.error(f"❌ Name list report not found: {name_list_path}")
         return []
 
     log.info(f"📄 Using name list: {name_list_path}")
 
     rows, fieldnames = _load_name_list_rows(name_list_path)
     if not rows:
-        log.warning("No editable entries found in the name list CSV.")
+        log.warning("No editable entries found in the name list report.")
         return []
 
-    log.info(f"📊 CSV entries loaded: {len(rows)}")
+    log.info(f"📊 Report entries loaded: {len(rows)}")
 
-    required_columns = {"path", "name", "edited_name", "metadata_title", "edited_title"}
+    required_columns = {"path", "type", "name", "edited_name", "title", "edited_title"}
     missing_columns = required_columns.difference(fieldnames)
     if missing_columns:
-        log.error(f"Name list CSV missing required columns: {', '.join(sorted(missing_columns))}")
+        log.error(f"Name list report missing required columns: {', '.join(sorted(missing_columns))}")
         return []
 
     if output_dir:
@@ -236,7 +245,7 @@ def vid_rename(
     with open_file(revert_path, "w", newline="") as revert_handle:
         writer = csv.DictWriter(
             revert_handle,
-            fieldnames=["path", "type", "name", "edited_name", "metadata_title", "edited_title"],
+            fieldnames=["path", "type", "name", "edited_name", "title", "edited_title"],
             quoting=csv.QUOTE_ALL,
         )
         writer.writeheader()
@@ -244,14 +253,14 @@ def vid_rename(
         for row in Progress(rows, desc="Applying edits"):
             path_value = (row.get("path") or "").strip()
             if not path_value:
-                failed.append(("<missing>", "missing path in CSV"))
+                failed.append(("<missing>", "missing path in report"))
                 continue
 
             original_path = Path(path_value).expanduser()
             original_type = (row.get("type") or "").strip()
             entry_type = original_type.lower()
             edited_name_raw = (row.get("edited_name") or "").strip()
-            metadata_title_value = (row.get("metadata_title") or "").strip()
+            title_value = (row.get("title") or row.get("metadata_title") or "").strip()
             edited_title_value = (row.get("edited_title") or "").strip()
             new_title_value = edited_title_value.strip()
 
@@ -275,9 +284,9 @@ def vid_rename(
             if edited_name_raw:
                 target_name = _apply_original_suffix(edited_name_raw, original_path)
             if entry_type == "d":
-                current_title = metadata_title_value
+                current_title = title_value
             else:
-                current_title = _probe_metadata_title(original_path) or metadata_title_value
+                current_title = _probe_metadata_title(original_path) or title_value
             new_size_bytes = original_size_bytes
             needs_rename = bool(edited_name_raw) and target_name != original_path.name
             needs_meta = (
@@ -341,7 +350,7 @@ def vid_rename(
                         "type": original_type,
                         "name": new_path.name,
                         "edited_name": original_path.name,
-                        "metadata_title": new_title_value if metadata_success else current_title,
+                        "title": new_title_value if metadata_success else current_title,
                         "edited_title": current_title,
                     })
 

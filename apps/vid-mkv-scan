@@ -56,5 +56,6 @@ vid_mkv_scan(
     output_dir=Path(cfg["output_dir"]) if cfg.get("output_dir") else None,
     output_root=Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None,
     dry_run=bool(cfg.get("dry_run", False)),
+    batch_size=cfg.get("batch_size"),
 )
 PY

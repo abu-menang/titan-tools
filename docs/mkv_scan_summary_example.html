@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MKV Scan Tracks Summary — Example</title>
+  <style>
+    :root{--bg:#fff;--muted:#666;--accent:#0aa;--danger:#c33;--warn:#c90;--ok:#2a8}
+    body{font-family:Inter, system-ui, -apple-system,Segoe UI, Roboto, "Helvetica Neue", Arial;line-height:1.45;color:#111;background:var(--bg);padding:28px}
+    header h1{margin:0 0 6px;font-size:1.4rem}
+    header p.meta{margin:0 0 18px;color:var(--muted)}
+    section{margin:18px 0;padding:12px 16px;border-radius:8px;background:#fafafa;border:1px solid #eee}
+    h2{margin:0 0 8px;font-size:1rem}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{padding:8px 10px;border:1px solid #e6e6e6;text-align:left}
+    th{background:#f7f7f7;color:#333}
+    .danger{color:var(--danger);font-weight:700}
+    .warn{color:var(--warn);font-weight:600}
+    .ok{color:var(--ok)}
+    ul.plain{margin:0;padding-left:18px}
+    footer{margin-top:20px;color:var(--muted);font-size:0.9rem}
+    pre.ansi{background:#111;color:#eee;padding:12px;border-radius:6px;overflow:auto}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📋 MKV Scan Tracks Summary</h1>
+    <p class="meta"><strong>Generated:</strong> mkv_scan_tracks_summary_2025-10-24_094915.txt</p>
+  </header>
+
+  <section aria-labelledby="multi-video">
+    <h2 id="multi-video">🎞️ more_than_1_video</h2>
+    <table>
+      <thead>
+        <tr><th>filename</th><th style="text-align:right">videos</th></tr>
+      </thead>
+      <tbody>
+        <tr class="danger"><td>rwrewt.mkv</td><td style="text-align:right">2</td></tr>
+        <tr class="danger"><td>fcc.mkv</td><td style="text-align:right">3</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="multi-audio">
+    <h2 id="multi-audio">🔊 more_than_1_audio</h2>
+    <table>
+      <thead>
+        <tr><th>filename</th><th style="text-align:right">audios</th></tr>
+      </thead>
+      <tbody>
+        <tr class="danger"><td>ngcvngf.mkv</td><td style="text-align:right">3</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="multi-sub">
+    <h2 id="multi-sub">📝 more_than_1_subtitle</h2>
+    <table>
+      <thead>
+        <tr><th>filename</th><th style="text-align:right">subtitles</th></tr>
+      </thead>
+      <tbody>
+        <tr class="danger"><td>gfgf.mkv</td><td style="text-align:right">2</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="missing">
+    <h2 id="missing">Missing / problematic reports</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <h3 class="warn">❌ no_video</h3>
+        <ul class="plain"><li>abc.mkv</li><li>xyz.mkv</li></ul>
+      </div>
+      <div>
+        <h3 class="warn">❌ no_audio</h3>
+        <ul class="plain"><li>treg.mkv</li><li>heh.mkv</li></ul>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <h3 class="warn">❗ no_subtitles</h3>
+      <ul class="plain"><li>gvweg.mkv</li></ul>
+    </div>
+    <div style="margin-top:12px">
+      <h3 class="warn">⚠️ no_eng_subtitles</h3>
+      <ul class="plain"><li>gregr.mkv</li></ul>
+    </div>
+  </section>
+
+  <section aria-labelledby="ansi-block">
+    <h2 id="ansi-block">ANSI coloured (terminal) preview</h2>
+    <pre class="ansi">📋 MKV Scan Tracks Summary
+Generated: mkv_scan_tracks_summary_2025-10-24_094915.txt
+
+🎞️ more_than_1_video
+rwrewt.mkv -> 2
+fcc.mkv -> 3
+
+🔊 more_than_1_audio
+ngcvngf.mkv -> 3
+
+📝 more_than_1_subtitle
+gfgf.mkv -> 2
+
+❌ no_video
+abc.mkv
+xyz.mkv
+
+❌ no_audio
+treg.mkv
+heh.mkv
+
+❗ no_subtitles
+gvweg.mkv
+
+⚠️ no_eng_subtitles
+gregr.mkv
+</pre>
+  </section>
+
+  <footer>
+    <p>Tip: open this file in a browser or KWrite for a nicely formatted view.
+    To see the ANSI colours paste the equivalent block into a terminal.</p>
+  </footer>
+
+</body>
+</html>

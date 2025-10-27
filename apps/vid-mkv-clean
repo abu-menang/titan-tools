@@ -49,13 +49,34 @@ setup_logging(
     file_prefix=logging_cfg.get("file_prefix"),
 )
 
-vid_mkv_clean = importlib.import_module("video.mkv_clean").vid_mkv_clean
+mkv_module = importlib.import_module("video.mkv_clean")
+vid_mkv_clean = mkv_module.vid_mkv_clean
+resolve_tracks_csvs = mkv_module.resolve_tracks_csvs
 
-vid_mkv_clean(
-    def_file=Path(cfg["definition"]) if cfg.get("definition") else None,
-    roots=[Path(p) for p in cfg.get("roots", [])] or None,
-    output_dir=Path(cfg["output_dir"]) if cfg.get("output_dir") else None,
-    output_root=Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None,
-    dry_run=bool(cfg.get("dry_run", False)),
-)
+roots = [Path(p).expanduser() for p in cfg.get("roots", [])]
+if not roots:
+    raise SystemExit("vid_mkv_clean config requires at least one root")
+
+output_dir = Path(cfg["output_dir"]).expanduser() if cfg.get("output_dir") else None
+output_root = Path(cfg["__output_root__"]).expanduser() if cfg.get("__output_root__") else None
+
+definition_override = cfg.get("definition")
+csv_parts = cfg.get("csv_part") or []
+
+if definition_override:
+    targets = [Path(definition_override).expanduser()]
+else:
+    part_sequence = csv_parts if csv_parts else None
+    targets = resolve_tracks_csvs(roots, output_root, part_sequence)
+    if not targets:
+        raise SystemExit("Could not locate mkv_scan track CSVs for the requested configuration.")
+
+for definition_path in targets:
+    vid_mkv_clean(
+        def_file=definition_path,
+        roots=roots,
+        output_dir=output_dir,
+        output_root=output_root,
+        dry_run=bool(cfg.get("dry_run", False)),
+    )
 PY

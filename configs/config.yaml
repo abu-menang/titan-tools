@@ -13,14 +13,51 @@ logging:
 
 task_defaults:
   roots:
-    - "/drive/CRONUS/downloads/torrent/completed/direct/manga/"
+    - "/drive/HYPERION/movies/indian/"
   output_root: "./00_reports"
 
+shared:
+  batch_size: 100  # max files per CSV batch
+  csv_part: [0]  # 0 = latest non-batched CSV, >0 = specific batched parts
+
 tasks:
+
+  vid_rename:
+    dry_run: false
+    no_meta: false
+    # csv_part: [10]
+    logging:
+      file_prefix: "rename"
+
+  vid_hevc_convert:
+    dry_run: false
+    preset: "slow"
+    crf: 23
+    logging:
+      file_prefix: "hevc_convert"
+
   vid_mkv_clean:
     dry_run: false
+    # csv_part: [1]  # override with latest mkv_scan_tracks_part01.csv
     logging:
       file_prefix: "mkv_clean"
+    # Which mkv_scan_tracks CSV variants to load for cleaning. Options:
+    #tracks_csv_types: ["ok"] #to only consume mkv_scan_tracks_ok
+    tracks_csv_types: ["issues"] #to only consume mkv_scan_tracks_issues
+    #tracks_csv_types: ["ok", "issues"] #to consume both (default)
+
+  vid_mkv_scan:
+    dry_run: false
+    logging:
+      file_prefix: "mkv_scan"
+    # Language-based rules to include files in mkv_scan_tracks_issues.
+    # Each is a list of language prefixes (case-insensitive). If empty,
+    # the corresponding rule is disabled.
+    # Example: lang_sub: ["eng", "ja"] will mark files with subtitle
+    # tracks whose language starts with "eng" or "ja" as issues.
+    lang_vid: []
+    lang_aud: ["hin","mal","tam","tel"]
+    lang_sub: ["eng"]
 
   file_scan:
     base_name: "file_scan"
@@ -30,16 +67,10 @@ tasks:
   file_rename:
     base_name: "file_scan"
     dry_run: false
+    # csv_part: [2, 3]
     logging:
       file_prefix: "file_rename"
 
-  vid_mkv_scan:
-    dry_run: false
-    logging:
-      file_prefix: "mkv_scan"
 
-  vid_rename:
-    dry_run: false
-    no_meta: false
-    logging:
-      file_prefix: "rename"
+
+

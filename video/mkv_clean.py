@@ -4,15 +4,14 @@ video.mkv_clean
 Automated MKV cleaning workflow fed by mkv_scan track exports.
 
 Workflow summary:
- - Discover the latest mkv_scan_tracks_*.csv under each root (or accept an explicit definition)
- - For each file, keep only the tracks present in the CSV (adding safety fallbacks)
+ - Discover the latest mkv_scan_tracks_* reports under each root (or accept an explicit definition)
+ - For each file, keep only the tracks present in the report (adding safety fallbacks)
  - Apply suggested track titles / language / default / forced flags during remux
  - Produce revertable backups alongside a CSV report of the run
 """
 
 from __future__ import annotations
 
-import csv
 import json
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +21,8 @@ from common.base.file_io import open_file, read_json
 from common.base.fs import ensure_dir, human_size
 from common.base.logging import get_logger
 from common.base.ops import move_file, run_command
-from common.shared.report import export_report
+from common.shared.report import export_report, discover_latest_csvs, load_tabular_rows
+from common.shared.loader import load_task_config
 from common.shared.utils import Progress
 
 log = get_logger(__name__)
@@ -39,7 +39,7 @@ TRACK_TYPE_MAP = {
 
 
 # ---------------------------------------------------------------------------
-# CSV / Definition loading
+# Report / Definition loading
 # ---------------------------------------------------------------------------
 
 def _parse_bool(token: object) -> Optional[bool]:
@@ -69,7 +69,11 @@ def _normalize_track_entry(row: dict) -> Optional[dict]:
         "type": track_type,
         "lang": (row.get("lang") or "").strip() or None,
         "name": (row.get("name") or "").strip() or None,
-        "suggested_rename": (row.get("suggested_rename") or "").strip() or None,
+        "suggested_rename": (
+            row.get("edited_name")
+            or row.get("suggested_rename")
+            or ""
+        ).strip() or None,
         "default": _parse_bool(row.get("default")),
         "forced": _parse_bool(row.get("forced")),
     }
@@ -78,21 +82,20 @@ def _normalize_track_entry(row: dict) -> Optional[dict]:
 
 def _load_tracks_from_csv(csv_path: Path) -> Dict[str, Dict[str, List[dict]]]:
     mapping: Dict[str, Dict[str, List[dict]]] = {}
-    with open_file(csv_path, "r", newline="") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            file_path = (row.get("file") or "").strip()
-            if not file_path:
-                continue
-            normalized_file = str(Path(file_path).expanduser().resolve())
-            entry = _normalize_track_entry(row)
-            if entry is None:
-                continue
-            file_bucket = mapping.setdefault(
-                normalized_file,
-                {"video": [], "audio": [], "subtitles": []},
-            )
-            file_bucket[entry["type"]].append(entry)
+    rows, _ = load_tabular_rows(csv_path)
+    for row in rows:
+        file_path = (row.get("path") or row.get("file") or "").strip()
+        if not file_path:
+            continue
+        normalized_file = str(Path(file_path).expanduser().resolve())
+        entry = _normalize_track_entry(row)
+        if entry is None:
+            continue
+        file_bucket = mapping.setdefault(
+            normalized_file,
+            {"video": [], "audio": [], "subtitles": []},
+        )
+        file_bucket[entry["type"]].append(entry)
     return mapping
 
 
@@ -127,32 +130,65 @@ def _normalize_json_definition(payload: dict) -> Dict[str, Dict[str, List[dict]]
     return mapping
 
 
-def _find_latest_tracks_csv(
+def resolve_tracks_csvs(
     roots: List[Path],
     output_root: Optional[Path | str],
-) -> Optional[Path]:
-    stamped: List[tuple[float, Path]] = []
+    csv_parts: Optional[Iterable[int]] = None,
+    tracks_csv_types: Optional[Iterable[str]] = None,
+) -> List[Path]:
+    """Discover latest report exports for mkv_scan_tracks variants.
+
+    tracks_csv_types may include any of: 'ok', 'issues'. If None, legacy
+    behaviour is used and we search for base 'mkv_scan_tracks'.
+    """
+    report_dirs: List[Path] = []
     for root in roots:
         root = root.expanduser().resolve()
         reports_dir = (root / output_root).resolve() if output_root else (root / "reports").resolve()
         if not reports_dir.exists():
             log.debug(f"Reports directory missing under {root}: {reports_dir}")
             continue
-        for candidate in sorted(reports_dir.glob(NAME_LIST_PATTERN)):
-            try:
-                stamped.append((candidate.stat().st_mtime, candidate))
-            except FileNotFoundError:
-                continue
-    if not stamped:
-        return None
-    _, latest = max(stamped, key=lambda item: item[0])
-    return latest
+        report_dirs.append(reports_dir)
+
+    # If no specific types requested, keep legacy behaviour (single base name)
+    if not tracks_csv_types:
+        return discover_latest_csvs(report_dirs, "mkv_scan_tracks", csv_parts)
+
+    results: List[Path] = []
+    for t in tracks_csv_types:
+        tclean = str(t).strip().lower()
+        if tclean == "ok":
+            base_name = "mkv_scan_tracks_ok"
+        elif tclean == "issues":
+            base_name = "mkv_scan_tracks_issues"
+        else:
+            # Allow callers to pass full base name as well
+            base_name = tclean
+        try:
+            matches = discover_latest_csvs(report_dirs, base_name, csv_parts)
+        except FileNotFoundError:
+            matches = []
+        for m in matches:
+            if m not in results:
+                results.append(m)
+    return results
+
+
+def _find_latest_tracks_csv(
+    roots: List[Path],
+    output_root: Optional[Path | str],
+    tracks_csv_types: Optional[Iterable[str]] = None,
+) -> Optional[Path]:
+    matches = resolve_tracks_csvs(roots, output_root, None, tracks_csv_types)
+    return matches[0] if matches else None
 
 
 def _load_track_definitions(
     def_file: Optional[Path],
     roots: List[Path],
     output_root: Optional[Path | str],
+    csv_parts: Optional[Iterable[int]] = None,
+    tracks_csv_types: Optional[Iterable[str]] = None,
 ) -> Dict[str, Dict[str, List[dict]]]:
     if def_file:
         def_path = def_file.expanduser().resolve()
@@ -160,7 +196,7 @@ def _load_track_definitions(
             log.error(f"Definition file not found: {def_path}")
             return {}
         if def_path.suffix.lower() == ".csv":
-            log.info(f"📄 Using track definition CSV: {def_path}")
+            log.info(f"📄 Using track definition report: {def_path}")
             return _load_tracks_from_csv(def_path)
         try:
             payload = read_json(def_path)
@@ -172,12 +208,26 @@ def _load_track_definitions(
             log.error(f"Failed to parse definition {def_path}: {exc}")
         return {}
 
-    fallback_csv = _find_latest_tracks_csv(roots, output_root)
-    if not fallback_csv:
-        log.error("❌ Could not locate mkv_scan_tracks CSV under reports directories.")
+    # Discover one or more track CSVs according to requested types and parts
+    matches = resolve_tracks_csvs(roots, output_root, csv_parts, tracks_csv_types)
+    if not matches:
+        log.error("❌ Could not locate mkv_scan_tracks report under reports directories.")
         return {}
-    log.info(f"📄 Using latest mkv_scan_tracks export: {fallback_csv}")
-    return _load_tracks_from_csv(fallback_csv)
+    mapping: Dict[str, Dict[str, List[dict]]] = {}
+    for m in matches:
+        log.info(f"📄 Loading track definition CSV: {m}")
+        try:
+            chunk_map = _load_tracks_from_csv(m)
+        except Exception as exc:
+            log.error(f"Failed to load {m}: {exc}")
+            continue
+        for file_path, buckets in chunk_map.items():
+            file_bucket = mapping.setdefault(
+                file_path, {"video": [], "audio": [], "subtitles": []}
+            )
+            for k in ("video", "audio", "subtitles"):
+                file_bucket[k].extend(buckets.get(k, []))
+    return mapping
 
 
 # ---------------------------------------------------------------------------
@@ -392,14 +442,35 @@ def vid_mkv_clean(
     dry_run: bool = False,
 ) -> List[Dict[str, str]]:
     roots = [Path(p).expanduser() for p in (roots or [Path.cwd()])]
-    track_definitions = _load_track_definitions(def_file, roots, output_root)
+    # Load task-level configuration (if present) to determine which
+    # mkv_scan_tracks CSV variants to consume and any csv_part selections.
+    try:
+        task_conf = load_task_config("vid_mkv_clean", None)
+    except Exception:
+        task_conf = {}
+
+    csv_parts = task_conf.get("csv_part")
+    tracks_csv_types = task_conf.get("tracks_csv_types")
+
+    track_definitions = _load_track_definitions(
+        def_file,
+        roots,
+        output_root,
+        csv_parts=csv_parts,
+        tracks_csv_types=tracks_csv_types,
+    )
     if not track_definitions:
         log.error("❌ No track definitions available; aborting mkv_clean run.")
         return []
 
     base_output_dir = ensure_dir(output_dir or Path("./reports"))
     run_stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    run_dir = ensure_dir(base_output_dir / f"{run_stamp}_mkv_clean")
+    run_dir_candidate = base_output_dir / f"{run_stamp}_mkv_clean"
+    counter = 1
+    while run_dir_candidate.exists():
+        run_dir_candidate = base_output_dir / f"{run_stamp}_mkv_clean_{counter:02d}"
+        counter += 1
+    run_dir = ensure_dir(run_dir_candidate)
     backup_dir = ensure_dir(run_dir / "ori")
     cleaned_dir = ensure_dir(run_dir / "staging")
 

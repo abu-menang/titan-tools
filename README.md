@@ -33,6 +33,7 @@ config path as the first argument to override:
 ```bash
 ./apps/vid-mkv-clean                # uses configs/config.yaml (task: vid_mkv_clean)
 ./apps/vid-mkv-scan custom_config.yaml
+./apps/vid-hevc-convert             # transcode non-HEVC MKVs via mkv_scan_non_hevc reports
 ```
 
 If you install the project (`pip install -e .`), the commands `vid-mkv-scan`,
@@ -79,6 +80,7 @@ All outputs are written under each root's `task_defaults.output_root`
 - `vid-mkv-clean` – remux MKVs based on the latest mkv_scan track export (or an optional CSV override).
 - `vid-mkv-scan` – scan MKVs, export track metadata, name lists, and non-HEVC reports.
 - `vid-rename` – apply edits from the latest mkv_scan name list (rename + metadata).
+- `vid-hevc-convert` – convert MKVs listed in the latest mkv_scan_non_hevc report to HEVC (libx265).
 - `file-scan` – produce a CSV inventory of files/directories for manual editing.
 - `file-rename` – apply pending renames from the latest file_scan CSV.
 

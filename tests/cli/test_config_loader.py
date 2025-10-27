@@ -23,6 +23,7 @@ def _wrap_task_config(
     body: str,
     logging_body: str | None = None,
     defaults_body: str | None = None,
+    shared_body: str | None = None,
 ) -> str:
     logging_block = (logging_body or "level: INFO").strip()
     body_block = body.strip()
@@ -30,6 +31,10 @@ def _wrap_task_config(
     if defaults_body:
         parts.append("task_defaults:\n")
         parts.append(textwrap.indent(defaults_body.strip(), "  "))
+        parts.append("\n")
+    if shared_body:
+        parts.append("shared:\n")
+        parts.append(textwrap.indent(shared_body.strip(), "  "))
         parts.append("\n")
     parts.append("logging:\n")
     parts.append(textwrap.indent(logging_block, "  "))
@@ -53,7 +58,8 @@ def test_load_task_config_mkv_clean(tmp_path: Path) -> None:
         _wrap_task_config(
             "vid_mkv_clean",
             (
-                "dry_run: true\n"
+                f"dry_run: true\n"
+                "csv_part: 1\n"
             ),
             defaults_body=defaults,
         ),
@@ -63,6 +69,7 @@ def test_load_task_config_mkv_clean(tmp_path: Path) -> None:
     assert config["roots"] == [str(tmp_path)]
     assert config["output_dir"] == str(output_root.resolve())
     assert config["dry_run"] is True
+    assert config["csv_part"] == [1]
     logging_cfg = config.get("__logging__", {})
     assert logging_cfg.get("level") == "INFO"
     assert logging_cfg.get("log_dir") == str((output_root / "logs").resolve())
@@ -81,6 +88,7 @@ def test_load_task_config_scan(tmp_path: Path) -> None:
             "vid_mkv_scan",
             (
                 "dry_run: false\n"
+                "batch_size: 42\n"
             ),
             defaults_body=defaults,
         ),
@@ -90,6 +98,7 @@ def test_load_task_config_scan(tmp_path: Path) -> None:
     assert config["roots"] == [str(tmp_path)]
     assert config["output_dir"] == str(output_root.resolve())
     assert config["dry_run"] is False
+    assert config["batch_size"] == 42
 
 
 def test_load_task_config_rename(tmp_path: Path) -> None:
@@ -107,6 +116,7 @@ def test_load_task_config_rename(tmp_path: Path) -> None:
             (
                 "dry_run: true\n"
                 "no_meta: true\n"
+                "csv_part: [2, 3]\n"
             ),
             defaults_body=defaults,
         ),
@@ -117,6 +127,7 @@ def test_load_task_config_rename(tmp_path: Path) -> None:
     assert config["output_dir"] == str(output_root.resolve())
     assert config["dry_run"] is True
     assert config["no_meta"] is True
+    assert config["csv_part"] == [2, 3]
 
 
 def test_load_task_config_file_scan(tmp_path: Path) -> None:
@@ -132,6 +143,8 @@ def test_load_task_config_file_scan(tmp_path: Path) -> None:
             "file_scan",
             (
                 "base_name: 'inventory'\n"
+                "batch_size: 15\n"
+                ""
             ),
             defaults_body=defaults,
         ),
@@ -141,6 +154,7 @@ def test_load_task_config_file_scan(tmp_path: Path) -> None:
     assert config["roots"] == [str(tmp_path)]
     assert config["output_dir"] == str((tmp_path / "reports").resolve())
     assert config["base_name"] == "inventory"
+    assert config["batch_size"] == 15
 
 
 def test_load_task_config_file_rename(tmp_path: Path) -> None:
@@ -157,6 +171,7 @@ def test_load_task_config_file_rename(tmp_path: Path) -> None:
             (
                 "base_name: 'file_scan'\n"
                 "dry_run: true\n"
+                "csv_part: [5]\n"
             ),
             defaults_body=defaults,
         ),
@@ -168,6 +183,70 @@ def test_load_task_config_file_rename(tmp_path: Path) -> None:
     assert config["base_name"] == "file_scan"
     assert config["dry_run"] is True
     assert config.get("mapping") is None
+    assert config["csv_part"] == [5]
+
+
+def test_shared_defaults_applied(tmp_path: Path) -> None:
+    defaults = (
+        f"roots:\n  - '{tmp_path}'\n"
+        "output_root: './reports'\n"
+    )
+    shared = "batch_size: 20\ncsv_part: [7]\n"
+
+    scan_cfg = _write_config(
+        tmp_path,
+        "shared_scan.yaml",
+        _wrap_task_config(
+            "vid_mkv_scan",
+            "dry_run: false\n",
+            defaults_body=defaults,
+            shared_body=shared,
+        ),
+    )
+
+    scan_config = load_task_config("vid_mkv_scan", scan_cfg)
+    assert scan_config["batch_size"] == 20
+
+    rename_cfg = _write_config(
+        tmp_path,
+        "shared_rename.yaml",
+        _wrap_task_config(
+            "vid_rename",
+            "dry_run: false\nno_meta: false\n",
+            defaults_body=defaults,
+            shared_body=shared,
+        ),
+    )
+
+    rename_config = load_task_config("vid_rename", rename_cfg)
+    assert rename_config["csv_part"] == [7]
+
+
+def test_load_task_config_hevc_convert(tmp_path: Path) -> None:
+    defaults = (
+        f"roots:\n  - '{tmp_path}'\n"
+        "output_root: './reports'\n"
+    )
+
+    cfg_path = _write_config(
+        tmp_path,
+        "hevc.yaml",
+        _wrap_task_config(
+            "vid_hevc_convert",
+            (
+                "dry_run: false\n"
+                "crf: 21\n"
+            ),
+            defaults_body=defaults,
+        ),
+    )
+
+    config = load_task_config("vid_hevc_convert", cfg_path)
+    assert config["roots"] == [str(tmp_path)]
+    assert config["output_dir"] == str((tmp_path / "reports").resolve())
+    assert config["csv_part"] == [0]
+    assert config["crf"] == 21
+    assert config.get("preset") is None
 
 
 def test_load_task_config_logging_override(tmp_path: Path) -> None:
@@ -195,7 +274,7 @@ def test_load_task_config_logging_override(tmp_path: Path) -> None:
 
     assert logging_cfg.get("level") == "WARNING"
     assert logging_cfg.get("file_prefix") == "per_task"
-    assert config["output_dir"] == str((output_root / "vid_mkv_scan").resolve())
+    assert config["output_dir"] == str(output_root.resolve())
     assert logging_cfg.get("log_dir") == str((output_root / "logs").resolve())
 
 
@@ -231,6 +310,7 @@ def test_cli_base64_encoding(tmp_path: Path) -> None:
         "clean.yaml",
         _wrap_task_config(
             "vid_mkv_clean",
+            "dry_run: false\n",
             defaults_body=defaults,
         ),
     )
@@ -248,3 +328,32 @@ def test_cli_base64_encoding(tmp_path: Path) -> None:
     assert logging_cfg.get("level") == "INFO"
     assert config["output_dir"] == str(output_root.resolve())
     assert logging_cfg.get("log_dir") == str((output_root / "logs").resolve())
+
+
+def test_lang_whitelist_loaded(tmp_path: Path) -> None:
+    """Ensure vid_mkv_scan lang_* lists are read from the task config."""
+    output_root = tmp_path / "reports"
+    defaults = (
+        f"roots:\n  - '{tmp_path}'\n"
+        "output_root: './reports'\n"
+    )
+
+    cfg_path = _write_config(
+        tmp_path,
+        "lang.yaml",
+        _wrap_task_config(
+            "vid_mkv_scan",
+            (
+                "dry_run: false\n"
+                "lang_vid: ['jpn', 'und']\n"
+                "lang_aud: ['jpn']\n"
+                "lang_sub: ['eng']\n"
+            ),
+            defaults_body=defaults,
+        ),
+    )
+
+    config = load_task_config("vid_mkv_scan", cfg_path)
+    assert config.get("lang_vid") == ['jpn', 'und']
+    assert config.get("lang_aud") == ['jpn']
+    assert config.get("lang_sub") == ['eng']

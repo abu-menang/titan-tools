@@ -57,5 +57,7 @@ scan_filesystem(
     root=root,
     output_dir=output_dir,
     base_name=base_name,
+    batch_size=cfg.get("batch_size"),
+        # include_csv removed; CSV outputs are now the default behavior when writing is enabled
 )
 PY

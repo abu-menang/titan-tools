@@ -1,7 +1,7 @@
 """
 file.renamer
 
-Rename files and directories based on the latest file_scan CSV.
+Rename files and directories based on the latest file_scan report (CSV).
 """
 
 from __future__ import annotations
@@ -15,17 +15,22 @@ from common.base.file_io import open_file
 from common.base.fs import ensure_dir
 from common.base.logging import get_logger
 from common.base.ops import move_file, run_command
-from common.shared.report import export_report
+from common.shared.report import export_report, discover_latest_csvs, load_tabular_rows
 
 from .utils import resolve_output_directory
 
 log = get_logger(__name__)
 
 
-def _load_rows(csv_path: Path) -> List[Dict[str, str]]:
-    with open_file(csv_path, "r", newline="") as handle:
-        reader = csv.DictReader(handle)
-        return [row for row in reader if row.get("path")]
+def _load_rows(report_path: Path) -> List[Dict[str, str]]:
+    rows, _ = load_tabular_rows(report_path)
+    normalized: List[Dict[str, str]] = []
+    for row in rows:
+        if "title" not in row and "metadata_title" in row:
+            row["title"] = row.get("metadata_title", "")
+        if row.get("path"):
+            normalized.append(row)
+    return normalized
 
 
 def _partition_rows(rows: Iterable[Dict[str, str]]) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
@@ -58,17 +63,16 @@ def _apply_move(path: Path, target_name: str, *, dry_run: bool) -> Tuple[bool, O
 
 
 def _find_latest_csv(base_dir: Path, base_name: str) -> Optional[Path]:
-    pattern = f"{base_name}_*.csv"
-    candidates: List[Tuple[float, Path]] = []
-    for candidate in sorted(base_dir.glob(pattern)):
-        try:
-            candidates.append((candidate.stat().st_mtime, candidate))
-        except FileNotFoundError:
-            continue
-    if not candidates:
-        return None
-    _, latest = max(candidates, key=lambda item: item[0])
-    return latest
+    matches = discover_latest_csvs([base_dir], base_name)
+    return matches[0] if matches else None
+
+
+def resolve_scan_csvs(
+    base_dir: Path,
+    base_name: str,
+    csv_parts: Optional[Iterable[int]] = None,
+) -> List[Path]:
+    return discover_latest_csvs([base_dir], base_name, csv_parts)
 
 
 def _write_summary(
@@ -187,7 +191,7 @@ def rename_from_scan(
     if csv_file is not None:
         csv_path = Path(csv_file).expanduser().resolve()
         if not csv_path.exists():
-            raise FileNotFoundError(f"CSV file not found: {csv_path}")
+            raise FileNotFoundError(f"Report file not found: {csv_path}")
     else:
         csv_path = _find_latest_csv(base_output, base_name)
         if not csv_path:
@@ -197,7 +201,12 @@ def rename_from_scan(
     files, dirs = _partition_rows(rows)
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    run_dir = ensure_dir(base_output / f"{timestamp}_file_rename")
+    run_dir_candidate = base_output / f"{timestamp}_file_rename"
+    counter = 1
+    while run_dir_candidate.exists():
+        run_dir_candidate = base_output / f"{timestamp}_file_rename_{counter:02d}"
+        counter += 1
+    run_dir = ensure_dir(run_dir_candidate)
     revert_path = run_dir / "revert.csv"
 
     results: List[Dict[str, str]] = []
@@ -210,7 +219,7 @@ def rename_from_scan(
     with open_file(revert_path, "w", newline="") as revert_handle:
         writer = csv.DictWriter(
             revert_handle,
-            fieldnames=["path", "filename", "edited_filename", "metadata_title"],
+            fieldnames=["path", "filename", "edited_filename", "title"],
             quoting=csv.QUOTE_ALL,
         )
         writer.writeheader()
@@ -303,7 +312,7 @@ def rename_from_scan(
                     "path": str(new_path),
                     "filename": new_path.name,
                     "edited_filename": original_path.name,
-                    "metadata_title": revert_metadata,
+                    "title": revert_metadata,
                 })
 
         for row in files:
@@ -332,11 +341,11 @@ def rename_from_scan(
 def cli(argv: Optional[Iterable[str]] = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Rename entries using a file_scan CSV.")
-    parser.add_argument("csv_file", nargs="?", help="CSV file exported by file-scan (defaults to latest).")
+    parser = argparse.ArgumentParser(description="Rename entries using a file_scan report (CSV).")
+    parser.add_argument("csv_file", nargs="?", help="Report exported by file-scan (defaults to latest CSV).")
     parser.add_argument("--config", "-c", help="Path to YAML configuration (defaults to configs/config.yaml).")
     parser.add_argument("--dry-run", action="store_true", help="Simulate renames without applying changes.")
-    parser.add_argument("--base-name", "-b", help="Override base name of the file_scan CSV.")
+    parser.add_argument("--base-name", "-b", help="Override base name of the file_scan report.")
     parser.add_argument("--root", help="Explicit root directory (defaults to first config root).")
 
     from common.shared.loader import load_task_config
@@ -380,13 +389,34 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
             file_prefix=logging_cfg.get("file_prefix"),
         )
 
-    rename_from_scan(
-        root=root_path,
-        csv_file=Path(args.csv_file).expanduser().resolve() if args.csv_file else None,
-        output_dir=output_dir,
-        base_name=base_name,
-        dry_run=args.dry_run or bool(cfg.get("dry_run", False)),
-    )
+    csv_parts = cfg.get("csv_part") or []
+    if args.csv_file:
+        targets = [Path(args.csv_file).expanduser().resolve()]
+    elif csv_parts:
+        try:
+            targets = resolve_scan_csvs(resolve_output_directory(root_path, output_dir), base_name, csv_parts)
+        except FileNotFoundError as exc:
+            raise SystemExit(str(exc))
+    else:
+        targets = []
+
+    if not targets:
+        rename_from_scan(
+            root=root_path,
+            csv_file=None,
+            output_dir=output_dir,
+            base_name=base_name,
+            dry_run=args.dry_run or bool(cfg.get("dry_run", False)),
+        )
+    else:
+        for csv_path in targets:
+            rename_from_scan(
+                root=root_path,
+                csv_file=csv_path,
+                output_dir=output_dir,
+                base_name=base_name,
+                dry_run=args.dry_run or bool(cfg.get("dry_run", False)),
+            )
     return 0
 
 

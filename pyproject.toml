@@ -52,6 +52,7 @@ dev = [
 ]
 
 # CLI entry points
+# CLI entry points
 [project.scripts]
 titan-config = "common.shared.loader:cli_main"
 vid-mkv-scan = "apps.cli:cli_vid_mkv_scan"
@@ -59,6 +60,7 @@ vid-mkv-clean = "apps.cli:cli_vid_mkv_clean"
 vid-rename = "apps.cli:cli_vid_rename"
 file-scan = "file.scanner:cli"
 file-rename = "file.renamer:cli"
+vid-hevc-convert = "apps.cli:cli_vid_hevc_convert"
 
 # Package discovery
 [tool.setuptools.packages.find]

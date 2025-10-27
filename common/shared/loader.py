@@ -18,7 +18,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from common.base.file_io import read_yaml
 
@@ -29,29 +29,34 @@ DEFAULT_CONFIG_FILENAME = "config.yaml"
 LOGGING_SECTION_KEY = "logging"
 TASKS_SECTION_KEY = "tasks"
 TASK_DEFAULTS_KEY = "task_defaults"
+SHARED_SECTION_KEY = "shared"
 CONFIGS_DIR = Path(__file__).resolve().parents[2] / "configs"
 
 
 TASK_SCHEMAS: Dict[str, Dict[str, Iterable[str]]] = {
     "vid_mkv_clean": {
         "required": [],
-        "optional": ["definition", "roots", "output_dir", "dry_run"],
+        "optional": ["definition", "roots", "output_dir", "dry_run", "csv_part", "tracks_csv_types"],
     },
     "vid_mkv_scan": {
         "required": ["roots"],
-        "optional": ["output_dir", "dry_run"],
+        "optional": ["output_dir", "dry_run", "batch_size", "lang_vid", "lang_aud", "lang_sub"],
     },
     "vid_rename": {
         "required": ["roots"],
-        "optional": ["output_dir", "dry_run", "no_meta", "mapping"],
+        "optional": ["output_dir", "dry_run", "no_meta", "mapping", "csv_part"],
     },
     "file_scan": {
         "required": ["roots"],
-        "optional": ["output_dir", "base_name"],
+        "optional": ["output_dir", "base_name", "batch_size"],
     },
     "file_rename": {
         "required": ["roots"],
-        "optional": ["output_dir", "base_name", "dry_run"],
+        "optional": ["output_dir", "base_name", "dry_run", "csv_part"],
+    },
+    "vid_hevc_convert": {
+        "required": ["roots"],
+        "optional": ["output_dir", "dry_run", "preset", "crf", "csv_part"],
     },
 }
 
@@ -63,8 +68,15 @@ FIELD_ALIASES = {
 SINGLE_PATH_FIELDS = {"definition", "output_dir", "mapping"}
 MULTI_PATH_FIELDS = {"roots"}
 BOOLEAN_FIELDS = {"dry_run", "no_meta"}
+INTEGER_FIELDS = {"batch_size", "crf"}
+INTEGER_LIST_FIELDS = {"csv_part"}
+YES_NO_FIELDS = set()
 LOGGING_ALLOWED_KEYS = {"level", "use_rich", "log_dir", "file_prefix"}
 TASK_DEFAULT_ALLOWED_KEYS = {"roots", "output_root"}
+SHARED_ALLOWED_KEYS = {"batch_size", "csv_part"}
+
+YES_VALUES = {"1", "true", "yes", "y", "on"}
+NO_VALUES = {"0", "false", "no", "n", "off"}
 
 
 def load_config(path: str | Path | None) -> Mapping[str, Any] | Dict[str, Any]:
@@ -120,6 +132,21 @@ class MediaTypes:
 
 def _normalize_exts(values: Iterable[str]) -> frozenset[str]:
     return frozenset(v.strip().lower() for v in values if v)
+
+
+def _coerce_yes_no(value: object, key: str, config_path: Path) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    text = str(value).strip().lower()
+    if text in YES_VALUES:
+        return True
+    if text in NO_VALUES:
+        return False
+    raise ValueError(
+        f"Configuration '{config_path}' field '{key}' must be 'y' or 'n' (case-insensitive)."
+    )
 
 
 @lru_cache(maxsize=1)
@@ -205,6 +232,8 @@ def load_task_config(task: str, config_path: str | Path | None = None) -> Config
             f"Configuration '{resolved_path}' contains unsupported keys for task '{task}': {', '.join(unexpected)}"
         )
 
+    provided_keys = set(config.keys())
+
     normalized: ConfigDict = {}
     for key in allowed_keys:
         if key not in config:
@@ -217,8 +246,29 @@ def load_task_config(task: str, config_path: str | Path | None = None) -> Config
             normalized[key] = _normalize_multi_path(value)
         elif key in BOOLEAN_FIELDS:
             normalized[key] = bool(value)
+        elif key in INTEGER_FIELDS:
+            if value is None or value == "":
+                normalized[key] = None
+            else:
+                normalized[key] = _coerce_int(value, key, resolved_path)
+        elif key in INTEGER_LIST_FIELDS:
+            normalized[key] = _normalize_int_list(value, key, resolved_path)
+        elif key in YES_NO_FIELDS:
+            normalized[key] = _coerce_yes_no(value, key, resolved_path)
         else:
             normalized[key] = value
+
+    shared_settings = _extract_shared_settings(root_config, resolved_path)
+
+    if "batch_size" in allowed_keys and "batch_size" not in provided_keys:
+        shared_batch = shared_settings.get("batch_size")
+        if shared_batch is not None:
+            normalized["batch_size"] = shared_batch
+
+    if "csv_part" in allowed_keys and "csv_part" not in provided_keys:
+        shared_parts = shared_settings.get("csv_part")
+        if shared_parts is not None:
+            normalized["csv_part"] = list(shared_parts)
 
     normalized["__task__"] = task
     normalized["__config_path__"] = str(resolved_path)
@@ -275,6 +325,40 @@ def _normalize_multi_path(value: Any) -> list[str]:
     if not values:
         raise ValueError("Expected at least one path entry")
     return [str(Path(item).expanduser()) for item in values]
+
+
+def _coerce_int(value: Any, field: str, config_path: Path) -> int:
+    if isinstance(value, bool):
+        raise ValueError(
+            f"Configuration '{config_path}' field '{field}' must be an integer."
+        )
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Configuration '{config_path}' field '{field}' must be an integer."
+        ) from exc
+
+
+def _normalize_int_list(value: Any, field: str, config_path: Path) -> List[int]:
+    if value is None:
+        return []
+
+    items: List[Any] = []
+    if isinstance(value, str):
+        tokens = [token.strip() for token in value.split(",") if token.strip()]
+        items.extend(tokens)
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            if isinstance(item, str) and "," in item:
+                tokens = [token.strip() for token in item.split(",") if token.strip()]
+                items.extend(tokens)
+            else:
+                items.append(item)
+    else:
+        items.append(value)
+
+    return [_coerce_int(item, field, config_path) for item in items]
 
 
 def _resolve_config_path(task: str, config_path: str | Path | None) -> Path:
@@ -346,6 +430,37 @@ def _extract_task_defaults(root: Mapping[str, Any], config_path: Path) -> Dict[s
             candidate = Path(base_root) / candidate
         defaults["output_root"] = str(candidate.resolve())
     return defaults
+
+
+def _extract_shared_settings(root: Mapping[str, Any], config_path: Path) -> Dict[str, Any]:
+    section = root.get(SHARED_SECTION_KEY, {})
+    if not section:
+        return {"csv_part": [0]}
+    if not isinstance(section, Mapping):
+        raise ValueError(f"'{SHARED_SECTION_KEY}' section must be a mapping in {config_path}")
+
+    invalid = [key for key in section if key not in SHARED_ALLOWED_KEYS]
+    if invalid:
+        invalid_keys = ", ".join(sorted(invalid))
+        raise ValueError(
+            f"'{SHARED_SECTION_KEY}' contains unsupported keys in {config_path}: {invalid_keys}"
+        )
+
+    settings: Dict[str, Any] = {}
+
+    if "batch_size" in section:
+        batch_value = section.get("batch_size")
+        if batch_value is not None and batch_value != "":
+            settings["batch_size"] = _coerce_int(batch_value, "batch_size", config_path)
+
+    if "csv_part" in section:
+        csv_value = section.get("csv_part")
+        normalized_parts = _normalize_int_list(csv_value, "csv_part", config_path) if csv_value is not None else []
+        settings["csv_part"] = normalized_parts or [0]
+    else:
+        settings.setdefault("csv_part", [0])
+
+    return settings
 
 
 def _determine_primary_root(
