@@ -13,13 +13,15 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 from common.base.logging import get_logger
 from common.shared.report import ColumnSpec, write_tabular_reports
 from common.shared.utils import Progress
 
+from .db_sync import DatabaseSyncError, MariaDBSync
 from .utils import resolve_output_directory
 
 log = get_logger(__name__)
@@ -127,6 +129,7 @@ def scan_filesystem(
     base_name: str = "file_scan",
     include_progress: bool = True,
     batch_size: Optional[int] = None,
+    database_config: Optional[Mapping[str, Any]] = None,
 ) -> List[Path]:
     """
     Scan a directory tree and write CSV report files.
@@ -137,6 +140,9 @@ def scan_filesystem(
         base_name: Base name for the generated files.
         include_progress: Display a progress bar via common.shared.utils.Progress.
         batch_size: Optional chunk size for splitting large outputs.
+        database_config: Optional mapping with MariaDB connection settings. When
+            provided, the scan results are synchronised with the configured
+            database in addition to generating CSV exports.
         Returns:
             List of generated CSV file paths (one entry when batching is disabled).
     """
@@ -150,10 +156,13 @@ def scan_filesystem(
     directory_rows: List[dict] = []
     directory_key_map: Dict[str, int] = {}
     file_rows: List[dict] = []
+    directory_paths: List[Path] = []
+    file_paths: List[Path] = []
     target_dir = resolve_output_directory(root, output_dir)
     exclude_dir = target_dir
     iterator: Iterable[Tuple[Path, str]] = _iter_entries(root, exclude_dir)
     iterable = Progress(iterator, desc="Scanning") if include_progress else iterator
+    scan_started_at = datetime.utcnow()
 
     for path, type_code in iterable:
         original_name, edited_name = _build_names(path, type_code)
@@ -170,12 +179,14 @@ def scan_filesystem(
             directory_rows.append(row)
             index = len(directory_rows) - 1
             directory_key_map.setdefault(str(path), index)
+            directory_paths.append(path)
             try:
                 directory_key_map.setdefault(str(path.resolve()), index)
             except Exception:
                 pass
         else:
             file_rows.append(row)
+            file_paths.append(path)
 
     # Ensure deterministic ordering so exported rows are sorted by path.
     file_rows.sort(key=lambda row: row["path"])
@@ -248,6 +259,23 @@ def scan_filesystem(
     for path in report_result.csv_paths:
         log.info(f"📄 CSV written to: {path}")
 
+    scan_completed_at = datetime.utcnow()
+
+    if database_config:
+        try:
+            db_sync = MariaDBSync(database_config)
+            db_sync.apply(
+                root=root,
+                directory_paths=directory_paths,
+                file_paths=file_paths,
+                started_at=scan_started_at,
+                completed_at=scan_completed_at,
+            )
+            log.info("MariaDB synchronisation completed.")
+        except DatabaseSyncError as exc:
+            log.error("Database synchronisation failed: %s", exc)
+            raise
+
     return report_result.csv_paths
 
 
@@ -295,6 +323,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     logging_cfg: Optional[dict] = None
 
     batch_size_cfg: Optional[int] = None
+    database_cfg: Optional[Mapping[str, Any]] = None
 
     if args.root:
         root_path = Path(args.root).expanduser().resolve()
@@ -325,6 +354,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
             base_name = config.get("base_name") or base_name
         logging_cfg = config.get("__logging__")
         batch_size_cfg = config.get("batch_size")
+        database_cfg = config.get("database")
     # include_csv removed; CSV outputs are the default when writing is enabled
 
     if logging_cfg:
@@ -343,6 +373,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
         base_name=base_name,
         include_progress=not args.no_progress,
         batch_size=batch_size_cfg,
+        database_config=database_cfg,
     )
 
     for path in workbook_paths:

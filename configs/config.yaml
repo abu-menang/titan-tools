@@ -13,7 +13,7 @@ logging:
 
 task_defaults:
   roots:
-    - "/drive/HYPERION/movies/indian/"
+    - "/drive/CRONUS/downloads/torrent/completed/direct/anime/Star.Wars.Visions.S01/"
   output_root: "./00_reports"
 
 shared:
@@ -63,6 +63,16 @@ tasks:
     base_name: "file_scan"
     logging:
       file_prefix: "file_scan"
+    database:
+      host: "192.168.50.2"
+      port: 3306
+      user: "media_service"
+      password: "DocSet53@med"
+      name: "media"
+      project: "library"
+      base_label: "HYPERION_movies"
+      compute_checksums: false
+      ensure_schema: true
 
   file_rename:
     base_name: "file_scan"
@@ -70,7 +80,6 @@ tasks:
     # csv_part: [2, 3]
     logging:
       file_prefix: "file_rename"
-
 
 
 

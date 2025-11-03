@@ -48,7 +48,7 @@ TASK_SCHEMAS: Dict[str, Dict[str, Iterable[str]]] = {
     },
     "file_scan": {
         "required": ["roots"],
-        "optional": ["output_dir", "base_name", "batch_size"],
+        "optional": ["output_dir", "base_name", "batch_size", "database"],
     },
     "file_rename": {
         "required": ["roots"],
