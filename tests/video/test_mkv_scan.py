@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from video.scan import _extract_track_rows
+from video.scan import _build_external_subtitle_rows, _extract_track_rows
 
 
 def test_extract_track_rows_generates_expected_fields() -> None:
@@ -71,3 +71,36 @@ def test_extract_track_rows_generates_expected_fields() -> None:
     assert subtitle_row["type"] == "subtitles"
     assert subtitle_row["lang"] == "eng"
     assert subtitle_row["edited_name"] == "ENG (S_TEXT/ASS)"
+
+
+def test_build_external_subtitle_rows_matches_with_language_suffix(tmp_path: Path) -> None:
+    video_path = tmp_path / "Show.S01E01.mp4"
+    video_path.touch()
+
+    local_sub = tmp_path / "Show.S01E01.eng.srt"
+    local_sub.touch()
+
+    other_dir = tmp_path / "subs"
+    other_dir.mkdir()
+    other_sub = other_dir / "Show.S01E01.srt"
+    other_sub.touch()
+
+    rows = _build_external_subtitle_rows([video_path], [local_sub, other_sub])
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["subtitle_path"] == str(local_sub)
+    assert row["match_key"] == "show s01e01"
+    assert row["manual_subtitle_path"] == ""
+    assert row["match_status"] == "auto"
+
+
+def test_build_external_subtitle_rows_handles_unmatched_video(tmp_path: Path) -> None:
+    video_path = tmp_path / "Movie.mp4"
+    video_path.touch()
+
+    rows = _build_external_subtitle_rows([video_path], [])
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["subtitle_path"] == ""
+    assert row["subtitle_candidates"] == ""
+    assert row["match_status"] == "unmatched"

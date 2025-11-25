@@ -13,7 +13,7 @@ logging:
 
 task_defaults:
   roots:
-    - "/drive/HYPERION/movies/indian/"
+    - "/drive/COEUS/reactions/AliAni/Kaguya/"
   output_root: "./00_reports"
 
 shared:
@@ -59,6 +59,21 @@ tasks:
     lang_aud: ["hin","mal","tam","tel"]
     lang_sub: ["eng"]
 
+  vid_mkv_extract_subs:
+    dry_run: false
+    overwrite: false
+    logging:
+      file_prefix: "mkv_extract_subs"
+    tracks_csv_types: ["issues"]
+
+  vid_srt_clean:
+    dry_run: false
+    overwrite: false
+    min_text_chars: 12
+    languages: ["eng"]
+    logging:
+      file_prefix: "srt_clean"
+
   file_scan:
     base_name: "file_scan"
     logging:
@@ -70,7 +85,5 @@ tasks:
     # csv_part: [2, 3]
     logging:
       file_prefix: "file_rename"
-
-
 
 

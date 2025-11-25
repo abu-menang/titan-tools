@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Repository wrapper for vid-mkv-extract-subs.
+# Loads task configuration via common.shared.loader and invokes the Python helper.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+if [ -d "$VENV_DIR" ]; then
+  # shellcheck disable=SC1091
+  source "$VENV_DIR/bin/activate"
+fi
+
+export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+
+CONFIG_PATH="${1:-$ROOT_DIR/configs/config.yaml}"
+CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_mkv_extract_subs "$CONFIG_PATH")"
+
+"$PYTHON_BIN" - "$CONFIG_PAYLOAD" <<'PY'
+import base64
+import json
+import importlib
+import sys
+from pathlib import Path
+
+from common.base.logging import setup_logging
+
+
+cfg = json.loads(base64.b64decode(sys.argv[1]).decode("utf-8"))
+logging_cfg = cfg.pop("__logging__", {}) or {}
+
+use_rich = logging_cfg.get("use_rich")
+if isinstance(use_rich, str):
+    lowered = use_rich.strip().lower()
+    if lowered == "auto":
+        use_rich = None
+    elif lowered in {"true", "yes", "1", "on"}:
+        use_rich = True
+    elif lowered in {"false", "no", "0", "off"}:
+        use_rich = False
+
+setup_logging(
+    level=logging_cfg.get("level"),
+    use_rich=use_rich,
+    log_dir=logging_cfg.get("log_dir"),
+    file_prefix=logging_cfg.get("file_prefix"),
+)
+
+extract_module = importlib.import_module("video.mkv_extract_subtitles")
+vid_mkv_extract_subs = extract_module.vid_mkv_extract_subs
+
+mkv_clean_module = importlib.import_module("video.mkv_clean")
+resolve_tracks_csvs = mkv_clean_module.resolve_tracks_csvs
+
+roots = [Path(p).expanduser() for p in cfg.get("roots", [])]
+output_dir = Path(cfg["output_dir"]).expanduser() if cfg.get("output_dir") else None
+output_root = Path(cfg["__output_root__"]).expanduser() if cfg.get("__output_root__") else None
+
+definition_override = cfg.get("definition")
+csv_parts = cfg.get("csv_part") or []
+tracks_csv_types = cfg.get("tracks_csv_types")
+
+targets: list[Path]
+if definition_override:
+    targets = [Path(definition_override).expanduser()]
+else:
+    if not roots:
+        raise SystemExit("vid_mkv_extract_subs requires 'roots' unless 'definition' is provided.")
+    part_sequence = csv_parts if csv_parts else None
+    targets = resolve_tracks_csvs(roots, output_root, part_sequence, tracks_csv_types)
+    if not targets:
+        raise SystemExit("Could not locate mkv_scan_tracks CSVs for the requested configuration.")
+
+mkvextract_bin = cfg.get("mkvextract_bin") or "mkvextract"
+overwrite = bool(cfg.get("overwrite", False))
+dry_run = bool(cfg.get("dry_run", False))
+
+for csv_path in targets:
+    summary = vid_mkv_extract_subs(
+        csv_path=csv_path,
+        output_dir=output_dir,
+        mkvextract_bin=mkvextract_bin,
+        overwrite=overwrite,
+        dry_run=dry_run,
+    )
+    extracted = len(summary.get("extracted", []))
+    skipped = len(summary.get("skipped", []))
+    failed = len(summary.get("failed", []))
+    print(
+        f"Processed {csv_path}: extracted={extracted} skipped={skipped} failed={failed}"
+    )
+PY

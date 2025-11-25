@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Repository wrapper for vid-srt-clean.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+if [ -d "$VENV_DIR" ]; then
+  # shellcheck disable=SC1091
+  source "$VENV_DIR/bin/activate"
+fi
+
+export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+
+CONFIG_PATH="${1:-$ROOT_DIR/configs/config.yaml}"
+CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_srt_clean "$CONFIG_PATH")"
+
+"$PYTHON_BIN" - "$CONFIG_PAYLOAD" <<'PY'
+import base64
+import json
+import importlib
+import sys
+from pathlib import Path
+
+from common.base.logging import setup_logging
+
+cfg = json.loads(base64.b64decode(sys.argv[1]).decode("utf-8"))
+logging_cfg = cfg.pop("__logging__", {}) or {}
+
+use_rich = logging_cfg.get("use_rich")
+if isinstance(use_rich, str):
+    lowered = use_rich.strip().lower()
+    if lowered == "auto":
+        use_rich = None
+    elif lowered in {"true", "yes", "1", "on"}:
+        use_rich = True
+    elif lowered in {"false", "no", "0", "off"}:
+        use_rich = False
+
+setup_logging(
+    level=logging_cfg.get("level"),
+    use_rich=use_rich,
+    log_dir=logging_cfg.get("log_dir"),
+    file_prefix=logging_cfg.get("file_prefix"),
+)
+
+vid_srt_clean = importlib.import_module("video.srt_clean").vid_srt_clean
+
+roots = [Path(p).expanduser() for p in cfg.get("roots", [])]
+if not roots:
+    raise SystemExit("vid_srt_clean config requires at least one root directory.")
+
+output_dir = Path(cfg["output_dir"]).expanduser() if cfg.get("output_dir") else None
+
+summary = vid_srt_clean(
+    roots=roots,
+    languages=cfg.get("languages", []),
+    min_text_chars=int(cfg.get("min_text_chars", 10)),
+    overwrite=bool(cfg.get("overwrite", False)),
+    output_dir=output_dir,
+    file_suffix=cfg.get("file_suffix", ".filtered"),
+    dry_run=bool(cfg.get("dry_run", False)),
+)
+
+processed = len(summary.get("processed", []))
+updated = len(summary.get("updated", []))
+skipped = len(summary.get("skipped", []))
+print(f"SRT clean complete: processed={processed} updated={updated} skipped={skipped}")
+PY

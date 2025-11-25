@@ -34,6 +34,15 @@ VIDEO_EXTS: set[str] = set(MEDIA_TYPES.video_exts)
 
 # For MKV scan, we only act on MKV files (mkvmerge-best path).
 MKV_EXTS: set[str] = {".mkv"}
+SUBTITLE_EXTS: set[str] = {
+    ".srt",
+    ".ass",
+    ".ssa",
+    ".sub",
+    ".idx",
+    ".sup",
+    ".vtt",
+}
 
 NAME_LIST_COLUMNS: List[ColumnSpec] = [
     ColumnSpec("type", "type", width=6),
@@ -79,6 +88,19 @@ SKIPPED_COLUMNS: List[ColumnSpec] = [
     ColumnSpec("filename", "filename", width=40),
     ColumnSpec("reason", "reason", width=40),
     ColumnSpec("path", "path", width=80),
+]
+
+EXTERNAL_SUB_COLUMNS: List[ColumnSpec] = [
+    ColumnSpec("match_key", "match_key", width=32),
+    ColumnSpec("video_filename", "video_filename", width=40),
+    ColumnSpec("video_ext", "video_ext", width=8),
+    ColumnSpec("video_path", "video_path", width=80),
+    ColumnSpec("subtitle_filename", "subtitle_filename", width=40),
+    ColumnSpec("subtitle_ext", "subtitle_ext", width=8),
+    ColumnSpec("subtitle_path", "subtitle_path", width=80),
+    ColumnSpec("subtitle_candidates", "subtitle_candidates", width=80),
+    ColumnSpec("manual_subtitle_path", "manual_subtitle_path", width=80),
+    ColumnSpec("match_status", "match_status", width=12),
 ]
 
 
@@ -144,6 +166,120 @@ def _iter_files(
                 p = Path(dirpath) / fname
                 if include_all or p.suffix.lower() in exts:
                     yield p
+
+
+_LANG_HINTS: Set[str] = {
+    "en",
+    "eng",
+    "english",
+    "es",
+    "spa",
+    "spanish",
+    "fr",
+    "fra",
+    "fre",
+    "french",
+    "de",
+    "ger",
+    "deu",
+    "german",
+    "it",
+    "ita",
+    "italian",
+    "pt",
+    "por",
+    "portuguese",
+    "hi",
+    "hin",
+    "ml",
+    "mal",
+    "ta",
+    "tam",
+    "te",
+    "tel",
+    "kn",
+    "kan",
+    "ja",
+    "jpn",
+    "jp",
+    "zh",
+    "zho",
+    "chs",
+    "cht",
+    "cn",
+    "ko",
+    "kor",
+    "ru",
+    "rus",
+    "ar",
+    "ara",
+    "he",
+    "heb",
+}
+
+_TRAILING_HINTS: Set[str] = _LANG_HINTS | {
+    "sdh",
+    "cc",
+    "forced",
+    "signs",
+    "sub",
+    "subs",
+    "subtitle",
+}
+
+
+def _build_match_key(path: Path) -> str:
+    """Return a normalized key for matching videos to external subtitles."""
+
+    tokens = [tok for tok in re.split(r"[\\s._-]+", path.stem) if tok]
+    while tokens and tokens[-1].lower() in _TRAILING_HINTS:
+        tokens.pop()
+    if not tokens:
+        tokens = [path.stem]
+    return " ".join(tokens).lower()
+
+
+def _select_subtitle_candidate(candidates: List[Path], video_dir: Path) -> Optional[Path]:
+    """Pick the most relevant subtitle candidate for a video."""
+
+    if not candidates:
+        return None
+    ordered = sorted(candidates, key=lambda p: (p.parent != video_dir, str(p)))
+    return ordered[0]
+
+
+def _build_external_subtitle_rows(
+    video_files: List[Path],
+    subtitle_files: List[Path],
+) -> List[Dict[str, str]]:
+    """Pair non-MKV video files with external subtitle files for later merging."""
+
+    subtitle_map: Dict[str, List[Path]] = {}
+    for sub in subtitle_files:
+        key = _build_match_key(sub)
+        subtitle_map.setdefault(key, []).append(sub)
+
+    rows: List[Dict[str, str]] = []
+    for video in sorted(video_files, key=lambda p: str(p).lower()):
+        key = _build_match_key(video)
+        candidates = subtitle_map.get(key, [])
+        chosen = _select_subtitle_candidate(candidates, video.parent)
+        ordered_candidates = sorted(candidates, key=lambda p: (p.parent != video.parent, str(p)))
+        row = {
+            "match_key": key,
+            "video_filename": video.name,
+            "video_ext": video.suffix.lower(),
+            "video_path": str(video),
+            "subtitle_filename": chosen.name if chosen else "",
+            "subtitle_ext": chosen.suffix.lower() if chosen else "",
+            "subtitle_path": str(chosen) if chosen else "",
+            "subtitle_candidates": " | ".join(str(p) for p in ordered_candidates),
+            "manual_subtitle_path": "",
+            "match_status": "auto" if chosen else "unmatched",
+        }
+        rows.append(row)
+
+    return rows
 
 
 def _extract_track_rows(file_path: Path, mkvmerge_json: dict, file_size: int) -> List[Dict[str, object]]:
@@ -324,7 +460,8 @@ def vid_mkv_scan(
     failed_files: List[Dict[str, str]] = []
     non_hevc_rows: List[Dict[str, object]] = []
     scanned_files = 0
-
+    non_mkv_video_files: List[Path] = []
+    subtitle_files: List[Path] = []
     skipped_files: List[Dict[str, str]] = []
 
     for candidate in Progress(
@@ -332,6 +469,10 @@ def vid_mkv_scan(
         desc="Probing MKV",
     ):
         suffix = candidate.suffix.lower()
+        if suffix in SUBTITLE_EXTS:
+            subtitle_files.append(candidate)
+        if suffix in VIDEO_EXTS and suffix not in MKV_EXTS:
+            non_mkv_video_files.append(candidate)
         if suffix not in MKV_EXTS:
             skipped_files.append({
                 "path": str(candidate),
@@ -424,6 +565,17 @@ def vid_mkv_scan(
     non_hevc_rows.sort(key=lambda row: row["path"])
     failed_files.sort(key=lambda row: row["path"])
     skipped_files.sort(key=lambda row: row["path"])
+
+    external_subtitle_rows = _build_external_subtitle_rows(non_mkv_video_files, subtitle_files)
+    if normalized_batch <= 0:
+        external_subtitle_chunks: List[List[Dict[str, str]]] = (
+            [external_subtitle_rows] if external_subtitle_rows else []
+        )
+    else:
+        external_subtitle_chunks = [
+            external_subtitle_rows[i : i + normalized_batch]
+            for i in range(0, len(external_subtitle_rows), normalized_batch)
+        ]
 
     chunkable_results = [entry for entry in file_results if entry.name_row]
     if normalized_batch <= 0:
@@ -630,6 +782,19 @@ def vid_mkv_scan(
 
     # XLS styling removed; reports are CSV-only.
     
+    if external_subtitle_chunks and write_csv_file:
+        external_result = write_tabular_reports(
+            external_subtitle_chunks,
+            "mkv_scan_external_subtitles",
+            EXTERNAL_SUB_COLUMNS,
+            output_dir=base_output_dir,
+            dry_run=dry_run,
+        )
+        written_reports["external_subtitles"] = {
+            "paths": external_result.csv_paths,
+            "rows": len(external_subtitle_rows),
+        }
+
     # Write split track CSVs: issues and ok. Each group's batching is handled
     # independently (we already built ok_track_chunk_rows and
     # issues_track_chunk_rows above).
@@ -740,6 +905,10 @@ def vid_mkv_scan(
         "non_hevc": (len(non_hevc_rows), written_reports.get("non_hevc", {}).get("paths", [])),
         "failures": (len(failed_files), written_reports.get("failures", {}).get("paths", [])),
         "skipped": (len(skipped_files), written_reports.get("skipped", {}).get("paths", [])),
+        "external_subtitles": (
+            len(external_subtitle_rows),
+            written_reports.get("external_subtitles", {}).get("paths", []),
+        ),
     }
 
     for label, (count, paths) in report_counts.items():

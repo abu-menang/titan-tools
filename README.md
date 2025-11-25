@@ -32,6 +32,8 @@ config path as the first argument to override:
 
 ```bash
 ./apps/vid-mkv-clean                # uses configs/config.yaml (task: vid_mkv_clean)
+./apps/vid-mkv-extract-subs         # extract subtitle tracks from mkv_scan reports
+./apps/vid-srt-clean                # remove non-target language blocks from SRT files
 ./apps/vid-mkv-scan custom_config.yaml
 ./apps/vid-hevc-convert             # transcode non-HEVC MKVs via mkv_scan_non_hevc reports
 ```
@@ -78,6 +80,8 @@ All outputs are written under each root's `task_defaults.output_root`
 ## Available commands
 
 - `vid-mkv-clean` – remux MKVs based on the latest mkv_scan track export (or an optional CSV override).
+- `vid-mkv-extract-subs` – extract subtitle tracks referenced in mkv_scan track reports.
+- `vid-srt-clean` – scan SRT files and strip subtitle blocks that do not match the configured languages.
 - `vid-mkv-scan` – scan MKVs, export track metadata, name lists, and non-HEVC reports.
 - `vid-rename` – apply edits from the latest mkv_scan name list (rename + metadata).
 - `vid-hevc-convert` – convert MKVs listed in the latest mkv_scan_non_hevc report to HEVC (libx265).

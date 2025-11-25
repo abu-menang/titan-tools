@@ -38,6 +38,23 @@ TASK_SCHEMAS: Dict[str, Dict[str, Iterable[str]]] = {
         "required": [],
         "optional": ["definition", "roots", "output_dir", "dry_run", "csv_part", "tracks_csv_types"],
     },
+    "vid_mkv_extract_subs": {
+        "required": [],
+        "optional": [
+            "definition",
+            "roots",
+            "output_dir",
+            "dry_run",
+            "csv_part",
+            "tracks_csv_types",
+            "mkvextract_bin",
+            "overwrite",
+        ],
+    },
+    "vid_srt_clean": {
+        "required": ["roots", "languages"],
+        "optional": ["output_dir", "dry_run", "overwrite", "file_suffix", "min_text_chars"],
+    },
     "vid_mkv_scan": {
         "required": ["roots"],
         "optional": ["output_dir", "dry_run", "batch_size", "lang_vid", "lang_aud", "lang_sub"],
@@ -67,8 +84,8 @@ FIELD_ALIASES = {
 
 SINGLE_PATH_FIELDS = {"definition", "output_dir", "mapping"}
 MULTI_PATH_FIELDS = {"roots"}
-BOOLEAN_FIELDS = {"dry_run", "no_meta"}
-INTEGER_FIELDS = {"batch_size", "crf"}
+BOOLEAN_FIELDS = {"dry_run", "no_meta", "overwrite"}
+INTEGER_FIELDS = {"batch_size", "crf", "min_text_chars"}
 INTEGER_LIST_FIELDS = {"csv_part"}
 YES_NO_FIELDS = set()
 LOGGING_ALLOWED_KEYS = {"level", "use_rich", "log_dir", "file_prefix"}

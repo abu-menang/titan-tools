@@ -22,6 +22,8 @@ from video.mkv_clean import resolve_tracks_csvs, vid_mkv_clean
 from video.rename import resolve_name_list_csvs, vid_rename
 from video.scan import vid_mkv_scan
 from video.hevc_convert import hevc_convert
+from video.mkv_extract_subtitles import vid_mkv_extract_subs
+from video.srt_clean import vid_srt_clean
 
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "config.yaml"
@@ -226,9 +228,156 @@ def cli_vid_hevc_convert(argv: Optional[Iterable[str]] = None) -> int:
     return 0
 
 
+def cli_vid_mkv_extract_subs(argv: Optional[Iterable[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Extract subtitle tracks listed in mkv_scan track reports.",
+    )
+    parser.add_argument("--config", "-c", help="Path to configuration YAML (defaults to repo config).")
+    parser.add_argument(
+        "--csv",
+        action="append",
+        help="Explicit mkv_scan_tracks CSV to consume; repeatable. Overrides config discovery.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simulate extraction without writing subtitle files.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite subtitle files if they already exist.",
+    )
+    parser.add_argument(
+        "--mkvextract-bin",
+        help="Override mkvextract binary path (defaults to config or PATH).",
+    )
+    _enable_autocomplete(parser)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    cfg = _load_task_payload("vid_mkv_extract_subs", args.config)
+    roots = _as_paths(cfg.get("roots", []))
+    output_dir = Path(cfg["output_dir"]) if cfg.get("output_dir") else None
+    output_root = Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None
+    dry_run_cfg = bool(cfg.get("dry_run", False))
+    overwrite_cfg = bool(cfg.get("overwrite", False))
+    csv_parts = cfg.get("csv_part") or []
+    tracks_csv_types = cfg.get("tracks_csv_types")
+    mkvextract_bin = (
+        args.mkvextract_bin
+        or cfg.get("mkvextract_bin")
+        or "mkvextract"
+    )
+
+    targets: List[Path]
+    if args.csv:
+        targets = [Path(item).expanduser().resolve() for item in args.csv]
+    else:
+        definition_override = cfg.get("definition")
+        if definition_override:
+            targets = [Path(definition_override).expanduser().resolve()]
+        else:
+            if not roots:
+                raise SystemExit("vid_mkv_extract_subs requires 'roots' when no CSV override is provided.")
+            part_sequence = csv_parts if csv_parts else None
+            targets = resolve_tracks_csvs(roots, output_root, part_sequence, tracks_csv_types)
+            if not targets:
+                raise SystemExit("Could not locate mkv_scan track CSVs for the requested configuration.")
+
+    for csv_path in targets:
+        summary = vid_mkv_extract_subs(
+            csv_path=csv_path,
+            output_dir=output_dir,
+            mkvextract_bin=mkvextract_bin,
+            overwrite=args.overwrite or overwrite_cfg,
+            dry_run=args.dry_run or dry_run_cfg,
+        )
+        extracted = len(summary.get("extracted", []))
+        skipped = len(summary.get("skipped", []))
+        failed = len(summary.get("failed", []))
+        print(
+            f"Processed {csv_path}: extracted={extracted} skipped={skipped} failed={failed}",
+        )
+    return 0
+
+
+def cli_vid_srt_clean(argv: Optional[Iterable[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Remove subtitle blocks that do not match the configured languages.",
+    )
+    parser.add_argument("--config", "-c", help="Path to configuration YAML (defaults to repo config).")
+    parser.add_argument(
+        "--root",
+        action="append",
+        help="Extra root directory to scan for SRT files (repeatable). Overrides config roots if provided.",
+    )
+    parser.add_argument(
+        "--language",
+        "-l",
+        action="append",
+        help="Language code to allow (repeatable). Overrides config languages when present.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        help="Destination directory for filtered SRT files (defaults to config setting or same folder).",
+    )
+    parser.add_argument(
+        "--suffix",
+        help="Filename suffix appended when not overwriting in place.",
+    )
+    parser.add_argument(
+        "--min-text-chars",
+        type=int,
+        help="Minimum character count required before language heuristics are applied.",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Simulate the cleaning without writing files.")
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite SRT files in place.")
+    _enable_autocomplete(parser)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    cfg = _load_task_payload("vid_srt_clean", args.config)
+
+    roots_cfg = _as_paths(cfg.get("roots", []))
+    roots_override = _as_paths(args.root) if args.root else None
+    roots = roots_override or roots_cfg
+    if not roots:
+        raise SystemExit("vid_srt_clean requires at least one root directory.")
+
+    languages_cfg = list(cfg.get("languages", []))
+    languages = args.language if args.language else languages_cfg
+    if not languages:
+        raise SystemExit("vid_srt_clean requires at least one language code.")
+
+    output_dir = Path(args.output_dir).expanduser() if args.output_dir else (
+        Path(cfg["output_dir"]).expanduser() if cfg.get("output_dir") else None
+    )
+    file_suffix = args.suffix if args.suffix is not None else cfg.get("file_suffix", ".filtered")
+    min_text_chars = args.min_text_chars if args.min_text_chars is not None else int(cfg.get("min_text_chars", 10))
+
+    summary = vid_srt_clean(
+        roots=roots,
+        languages=languages,
+        min_text_chars=min_text_chars,
+        overwrite=args.overwrite or bool(cfg.get("overwrite", False)),
+        output_dir=output_dir,
+        file_suffix=file_suffix,
+        dry_run=args.dry_run or bool(cfg.get("dry_run", False)),
+    )
+
+    processed = len(summary.get("processed", []))
+    updated = len(summary.get("updated", []))
+    skipped = len(summary.get("skipped", []))
+    print(
+        f"SRT clean complete: processed={processed} updated={updated} skipped={skipped}",
+    )
+    return 0
+
+
 __all__ = [
     "cli_vid_mkv_clean",
+    "cli_vid_mkv_extract_subs",
     "cli_vid_mkv_scan",
     "cli_vid_rename",
     "cli_vid_hevc_convert",
+    "cli_vid_srt_clean",
 ]
