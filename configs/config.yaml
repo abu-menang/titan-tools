@@ -13,7 +13,9 @@ logging:
 
 task_defaults:
   roots:
-    - "/drive/COEUS/reactions/AliAni/Kaguya/"
+    - "/drive/ATLAS/series/english/Parks and Recreation/"
+    #- "/drive/ATLAS/series/english/Paper, The (2025)/"
+    #- "/drive/ATLAS/series/anime/Studio Apartment, Good Lighting, Angel Included/"
   output_root: "./00_reports"
 
 shared:
@@ -56,7 +58,8 @@ tasks:
     # Example: lang_sub: ["eng", "ja"] will mark files with subtitle
     # tracks whose language starts with "eng" or "ja" as issues.
     lang_vid: []
-    lang_aud: ["hin","mal","tam","tel"]
+    #lang_aud: ["hin","mal","tam","tel"]
+    lang_aud: ["eng"]
     lang_sub: ["eng"]
 
   vid_mkv_extract_subs:
@@ -65,6 +68,11 @@ tasks:
     logging:
       file_prefix: "mkv_extract_subs"
     tracks_csv_types: ["issues"]
+
+  vid_mkv_merge_ext_subs:
+    dry_run: false
+    logging:
+      file_prefix: "mkv_merge_ext_subs"
 
   vid_srt_clean:
     dry_run: false
@@ -85,5 +93,3 @@ tasks:
     # csv_part: [2, 3]
     logging:
       file_prefix: "file_rename"
-
-

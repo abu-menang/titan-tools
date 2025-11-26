@@ -69,7 +69,7 @@ else:
     part_sequence = csv_parts if csv_parts else None
     targets = resolve_tracks_csvs(roots, output_root, part_sequence)
     if not targets:
-        raise SystemExit("Could not locate mkv_scan track CSVs for the requested configuration.")
+        raise SystemExit("Could not locate scan_mkv track CSVs for the requested configuration.")
 
 for definition_path in targets:
     vid_mkv_clean(

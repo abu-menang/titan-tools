@@ -1,10 +1,11 @@
 """
 video.mkv_clean
 
-Automated MKV cleaning workflow fed by mkv_scan track exports.
+Automated MKV cleaning workflow fed by vid-mkv-scan track exports.
 
 Workflow summary:
- - Discover the latest mkv_scan_tracks_* reports under each root (or accept an explicit definition)
+ - Discover the latest scan_mkv_tracks_* (or legacy mkv_scan_tracks_*) reports under each root
+   (or accept an explicit definition)
  - For each file, keep only the tracks present in the report (adding safety fallbacks)
  - Apply suggested track titles / language / default / forced flags during remux
  - Produce revertable backups alongside a CSV report of the run
@@ -27,7 +28,7 @@ from common.shared.utils import Progress
 
 log = get_logger(__name__)
 
-NAME_LIST_PATTERN = "mkv_scan_tracks_*.csv"
+NAME_LIST_PATTERN = "scan_mkv_tracks_*.csv"
 TRACK_TYPE_MAP = {
     "video": "video",
     "audio": "audio",
@@ -130,16 +131,41 @@ def _normalize_json_definition(payload: dict) -> Dict[str, Dict[str, List[dict]]
     return mapping
 
 
+def _apply_clean_tag(path: Path, *, dry_run: bool = False) -> None:
+    """Apply a timestamp tag to a cleaned file using extended attributes."""
+
+    tag = datetime.now().strftime("%Y_%m_%d-%H_%M")
+    if dry_run:
+        log.info(f"[DRY-RUN] Would replace user.xdg.tags on {path} with {tag}")
+        return
+
+    # Remove any existing tags then set the new one.
+    run_command(
+        ["setfattr", "-x", "user.xdg.tags", str(path)],
+        capture=True,
+        stream=False,
+    )
+
+    code, _, err = run_command(
+        ["setfattr", "-n", "user.xdg.tags", "-v", tag, str(path)],
+        capture=True,
+        stream=False,
+    )
+    if code != 0:
+        log.warning(f"Failed to tag {path} with user.xdg.tags={tag}: {err.strip() if err else 'unknown error'}")
+
+
 def resolve_tracks_csvs(
     roots: List[Path],
     output_root: Optional[Path | str],
     csv_parts: Optional[Iterable[int]] = None,
     tracks_csv_types: Optional[Iterable[str]] = None,
 ) -> List[Path]:
-    """Discover latest report exports for mkv_scan_tracks variants.
+    """Discover latest report exports for scan_mkv_tracks variants.
 
     tracks_csv_types may include any of: 'ok', 'issues'. If None, legacy
-    behaviour is used and we search for base 'mkv_scan_tracks'.
+    behaviour is used and we search for base 'scan_mkv_tracks' and fall back
+    to legacy 'mkv_scan_tracks'.
     """
     report_dirs: List[Path] = []
     for root in roots:
@@ -152,15 +178,27 @@ def resolve_tracks_csvs(
 
     # If no specific types requested, keep legacy behaviour (single base name)
     if not tracks_csv_types:
+        # Prefer new per-status exports; fall back to legacy combined naming.
+        collected: List[Path] = []
+        for base_name in ("scan_mkv_issues", "scan_mkv_ok"):
+            try:
+                matches = discover_latest_csvs(report_dirs, base_name, csv_parts)
+            except FileNotFoundError:
+                matches = []
+            for m in matches:
+                if m not in collected:
+                    collected.append(m)
+        if collected:
+            return collected
         return discover_latest_csvs(report_dirs, "mkv_scan_tracks", csv_parts)
 
     results: List[Path] = []
     for t in tracks_csv_types:
         tclean = str(t).strip().lower()
         if tclean == "ok":
-            base_name = "mkv_scan_tracks_ok"
+            base_name = "scan_mkv_ok"
         elif tclean == "issues":
-            base_name = "mkv_scan_tracks_issues"
+            base_name = "scan_mkv_issues"
         else:
             # Allow callers to pass full base name as well
             base_name = tclean
@@ -579,6 +617,10 @@ def vid_mkv_clean(
                 backup_target.unlink()
             move_file(mkv_path, backup_target)
             move_file(cleaned_tmp, mkv_path)
+            try:
+                _apply_clean_tag(mkv_path, dry_run=dry_run)
+            except Exception:
+                log.warning(f"Failed to apply tag to {mkv_path}")
             new_size = mkv_path.stat().st_size
             log.info(f"✅ Cleaned {mkv_path.name}")
             results.append({

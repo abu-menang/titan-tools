@@ -38,6 +38,10 @@ TASK_SCHEMAS: Dict[str, Dict[str, Iterable[str]]] = {
         "required": [],
         "optional": ["definition", "roots", "output_dir", "dry_run", "csv_part", "tracks_csv_types"],
     },
+    "vid_mkv_merge_ext_subs": {
+        "required": [],
+        "optional": ["definition", "roots", "output_dir", "dry_run", "csv_part", "sources"],
+    },
     "vid_mkv_extract_subs": {
         "required": [],
         "optional": [
