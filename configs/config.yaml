@@ -3,7 +3,7 @@
 
 logging:
   # Default logging level for the entire toolkit. Accepts standard logging levels.
-  level: DEBUG
+  level: INFO
   # Allow overriding Rich-based logging. Values: true, false, or "auto" to auto-detect.
   use_rich: auto
   # Directory for log files emitted by the logging setup.
@@ -13,11 +13,13 @@ logging:
 
 task_defaults:
   roots:
-    - "/drive/ATLAS/series/english/Parks and Recreation/"
-    #- "/drive/ATLAS/series/english/Paper, The (2025)/"
+    #- "/drive/HYPERION/movies/anime/"
+    #- "/drive/HYPERION/movies/tt/"
+    - "/drive/ATLAS/series/test/"
     #- "/drive/ATLAS/series/anime/Studio Apartment, Good Lighting, Angel Included/"
-  output_root: "./00_reports"
-
+  tracks_root: "./00_tracks"
+  hevc_root: "./00_hevc"
+  
 shared:
   batch_size: 100  # max files per CSV batch
   csv_part: [0]  # 0 = latest non-batched CSV, >0 = specific batched parts
@@ -52,15 +54,26 @@ tasks:
     dry_run: false
     logging:
       file_prefix: "mkv_scan"
-    # Language-based rules to include files in mkv_scan_tracks_issues.
-    # Each is a list of language prefixes (case-insensitive). If empty,
-    # the corresponding rule is disabled.
-    # Example: lang_sub: ["eng", "ja"] will mark files with subtitle
-    # tracks whose language starts with "eng" or "ja" as issues.
-    lang_vid: []
-    #lang_aud: ["hin","mal","tam","tel"]
-    lang_aud: ["eng"]
-    lang_sub: ["eng"]
+
+  vid_scan_hevc:
+    dry_run: false
+    logging:
+      file_prefix: "mkv_scan_hevc"
+
+  vid_mkv_scan_v2:
+    dry_run: false
+    logging:
+      file_prefix: "mkv_scan_v2"
+
+  vid_cleaner:
+    dry_run: false
+    logging:
+      file_prefix: "vid_cleaner"
+
+  vid_conv_cleaner:
+    dry_run: false
+    logging:
+      file_prefix: "vid_conv_cleaner"
 
   vid_mkv_extract_subs:
     dry_run: false

@@ -18,7 +18,10 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from common.shared.report import ColumnSpec
 
 from common.base.file_io import read_yaml
 
@@ -34,6 +37,10 @@ CONFIGS_DIR = Path(__file__).resolve().parents[2] / "configs"
 
 
 TASK_SCHEMAS: Dict[str, Dict[str, Iterable[str]]] = {
+    "vid_cleaner": {
+        "required": [],
+        "optional": ["roots", "output_dir", "dry_run", "clean_dir_key"],
+    },
     "vid_mkv_clean": {
         "required": [],
         "optional": ["definition", "roots", "output_dir", "dry_run", "csv_part", "tracks_csv_types"],
@@ -63,9 +70,21 @@ TASK_SCHEMAS: Dict[str, Dict[str, Iterable[str]]] = {
         "required": ["roots"],
         "optional": ["output_dir", "dry_run", "batch_size", "lang_vid", "lang_aud", "lang_sub"],
     },
+    "vid_mkv_scan_v2": {
+        "required": ["roots"],
+        "optional": ["output_dir", "dry_run", "batch_size", "lang_vid", "lang_aud", "lang_sub"],
+    },
+    "vid_scan_hevc": {
+        "required": ["roots"],
+        "optional": ["output_dir", "dry_run", "batch_size", "lang_vid", "lang_aud", "lang_sub"],
+    },
     "vid_rename": {
         "required": ["roots"],
         "optional": ["output_dir", "dry_run", "no_meta", "mapping", "csv_part"],
+    },
+    "vid_conv_cleaner": {
+        "required": [],
+        "optional": ["roots", "output_dir", "dry_run"],
     },
     "file_scan": {
         "required": ["roots"],
@@ -137,17 +156,37 @@ def load_yaml_resource(
     return read_yaml(candidate)
 
 
+def load_output_dirs(config_dir: str | Path | None = None) -> Dict[str, Any]:
+    """
+    Load the output_dirs YAML mapping. Returns an empty dict on error.
+    """
+    try:
+        data = load_yaml_resource("output_dirs", config_dir=config_dir)
+        if data is None:
+            return {}
+        if not isinstance(data, Mapping):
+            raise ValueError("output_dirs YAML must contain a mapping at the root.")
+        return dict(data)
+    except Exception:
+        return {}
+
+
 @dataclass(frozen=True)
 class MediaTypes:
     video_exts: frozenset[str]
     audio_exts: frozenset[str]
     image_exts: frozenset[str]
     doc_exts: frozenset[str]
+    subtitle_exts: frozenset[str]
 
     @property
     def all_known_exts(self) -> frozenset[str]:
         return frozenset(
-            self.video_exts | self.audio_exts | self.image_exts | self.doc_exts
+            self.video_exts
+            | self.audio_exts
+            | self.image_exts
+            | self.doc_exts
+            | self.subtitle_exts
         )
 
 
@@ -199,6 +238,67 @@ def load_media_types(config_path: str | Path | None = None) -> MediaTypes:
         audio_exts=_normalize_exts(_get_list("audio_exts")),
         image_exts=_normalize_exts(_get_list("image_exts")),
         doc_exts=_normalize_exts(_get_list("doc_exts")),
+        subtitle_exts=_normalize_exts(_get_list("subtitle_exts")),
+    )
+
+
+@dataclass(frozen=True)
+class ScanConfig:
+    media_types: MediaTypes
+    columns: Dict[str, List["ColumnSpec"]]
+    report_dir_map: Mapping[str, str]
+    base_dir_map: Dict[str, str]
+
+
+def load_scan_config(log=None) -> ScanConfig:
+    """
+    Centralized loader for video scan configuration pieces:
+      - media types/extensions
+      - mkv_scan_columns (column specs)
+      - output_dirs (report directory mapping)
+
+    Raises SystemExit(1) if required pieces cannot be loaded/validated.
+    """
+    try:
+        media_types = load_media_types()
+    except Exception as exc:
+        if log:
+            log.error("Failed to load media_types.yaml: %s", exc)
+        raise SystemExit(1)
+
+    try:
+        from common.utils.column_utils import load_column_specs  # local import to avoid cycles
+
+        columns = load_column_specs("mkv_scan_columns")
+    except Exception as exc:
+        if log:
+            log.error("Failed to load mkv_scan_columns.yaml: %s", exc)
+        raise SystemExit(1)
+
+    try:
+        output_dirs = load_yaml_resource("output_dirs")
+    except Exception as exc:
+        if log:
+            log.error("Failed to load output_dirs.yaml: %s", exc)
+        raise SystemExit(1)
+
+    if not isinstance(output_dirs, Mapping):
+        if log:
+            log.error("output_dirs.yaml root must be a mapping")
+        raise SystemExit(1)
+
+    report_dir_map = output_dirs.get("reports", {})
+    if not isinstance(report_dir_map, Mapping):
+        if log:
+            log.error("output_dirs.yaml 'reports' must be a mapping")
+        raise SystemExit(1)
+
+    base_dir_map = {k: v for k, v in output_dirs.items() if k != "reports"}
+    return ScanConfig(
+        media_types=media_types,
+        columns=columns,
+        report_dir_map=report_dir_map,
+        base_dir_map=base_dir_map,
     )
 
 

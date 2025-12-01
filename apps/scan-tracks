@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Repository convenience wrapper for vid-mkv-merge-ext-subs.
+# Repository convenience wrapper for scan-tracks (vid_mkv_scan).
 # Activates the local virtualenv if present, loads YAML via common.shared.loader,
 # and executes the underlying Python workflow.
 
@@ -18,13 +18,14 @@ fi
 export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 
 CONFIG_PATH="${1:-$ROOT_DIR/configs/config.yaml}"
-CONFIG_PAYLOAD="$($PYTHON_BIN -m common.shared.loader vid_mkv_merge_ext_subs "$CONFIG_PATH")"
+CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_mkv_scan "$CONFIG_PATH")"
 
 "$PYTHON_BIN" - "$CONFIG_PAYLOAD" <<'PY'
 import base64
 import json
 import importlib
 import sys
+import logging
 from pathlib import Path
 
 from common.base.logging import setup_logging
@@ -49,30 +50,23 @@ setup_logging(
     file_prefix=logging_cfg.get("file_prefix"),
 )
 
-mkv_module = importlib.import_module("video.mkv_merge_ext_subs")
-vid_mkv_merge_ext_subs = mkv_module.vid_mkv_merge_ext_subs
-resolve_convert_csvs = mkv_module.resolve_convert_ext_subs_csvs
+log = logging.getLogger("vid_mkv_scan")
+log.info(
+    "Config loaded for vid_mkv_scan (roots=%s, output_dir=%s, output_root=%s, dry_run=%s, batch_size=%s)",
+    cfg.get("roots"),
+    cfg.get("output_dir"),
+    cfg.get("__output_root__"),
+    cfg.get("dry_run"),
+    cfg.get("batch_size"),
+)
 
-roots = [Path(p).expanduser() for p in cfg.get("roots", [])]
-output_dir = Path(cfg["output_dir"]).expanduser() if cfg.get("output_dir") else None
-output_root = Path(cfg["__output_root__"]).expanduser() if cfg.get("__output_root__") else None
+vid_mkv_scan = importlib.import_module("video.scanners.scan_tracks").vid_mkv_scan
 
-definition_override = cfg.get("definition")
-csv_parts = cfg.get("csv_part") or []
-sources = cfg.get("sources") or ["mkv", "non_mkv"]
-
-if definition_override:
-    targets = [Path(definition_override).expanduser()]
-else:
-    part_sequence = csv_parts if csv_parts else None
-    targets = resolve_convert_csvs(roots, output_root, part_sequence, sources)
-    if not targets:
-        raise SystemExit("Could not locate mkv_ext_subs/vid_ext_subs CSVs (legacy scan_* also accepted) for the requested configuration.")
-
-for definition_path in targets:
-    vid_mkv_merge_ext_subs(
-        def_file=definition_path,
-        output_dir=output_dir,
-        dry_run=bool(cfg.get("dry_run", False)),
-    )
+vid_mkv_scan(
+    roots=[Path(p) for p in cfg.get("roots", [])],
+    output_dir=Path(cfg["output_dir"]) if cfg.get("output_dir") else None,
+    output_root=Path(cfg.get("tracks_root") or cfg.get("__output_root__") or cfg.get("output_root") or "") if (cfg.get("tracks_root") or cfg.get("__output_root__") or cfg.get("output_root")) else None,
+    dry_run=bool(cfg.get("dry_run", False)),
+    batch_size=cfg.get("batch_size"),
+)
 PY

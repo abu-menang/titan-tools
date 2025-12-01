@@ -28,6 +28,6 @@ Environment ready.
 Run the following to activate in this shell:
   source .venv/bin/activate
 
-After activation, the CLI entry points (vid-mkv-clean, vid-mkv-scan, vid-rename)
+After activation, the CLI entry points (vid-mkv-clean, scan-tracks, vid-rename)
 will resolve to the virtual environment's bin directory.
 EOF

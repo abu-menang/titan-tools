@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Repository convenience wrapper for vid-mkv-scan.
-# Activates the local virtualenv if present, loads YAML via common.shared.loader,
-# and executes the underlying Python workflow.
+# Convenience wrapper for discovering clean_dir CSVs and running the cleaner workflow.
 
 set -euo pipefail
 
@@ -18,14 +16,14 @@ fi
 export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 
 CONFIG_PATH="${1:-$ROOT_DIR/configs/config.yaml}"
-CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_mkv_scan "$CONFIG_PATH")"
+CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_cleaner "$CONFIG_PATH")"
 
 "$PYTHON_BIN" - "$CONFIG_PAYLOAD" <<'PY'
 import base64
 import json
 import importlib
-import sys
 import logging
+import sys
 from pathlib import Path
 
 from common.base.logging import setup_logging
@@ -50,23 +48,21 @@ setup_logging(
     file_prefix=logging_cfg.get("file_prefix"),
 )
 
-log = logging.getLogger("vid_mkv_scan")
+log = logging.getLogger("vid_cleaner")
 log.info(
-    "Config loaded for vid_mkv_scan (roots=%s, output_dir=%s, output_root=%s, dry_run=%s, batch_size=%s)",
+    "Config loaded for vid_cleaner (roots=%s, output_dir=%s, output_root=%s, dry_run=%s)",
     cfg.get("roots"),
     cfg.get("output_dir"),
     cfg.get("__output_root__"),
     cfg.get("dry_run"),
-    cfg.get("batch_size"),
 )
 
-vid_mkv_scan = importlib.import_module("video.scan").vid_mkv_scan
+run_cleaner = importlib.import_module("video.cleaner").run_cleaner
 
-vid_mkv_scan(
-    roots=[Path(p) for p in cfg.get("roots", [])],
-    output_dir=Path(cfg["output_dir"]) if cfg.get("output_dir") else None,
+run_cleaner(
+    roots=[Path(p) for p in cfg.get("roots", [])] or None,
     output_root=Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None,
+    output_dir=Path(cfg["output_dir"]) if cfg.get("output_dir") else None,
     dry_run=bool(cfg.get("dry_run", False)),
-    batch_size=cfg.get("batch_size"),
 )
 PY

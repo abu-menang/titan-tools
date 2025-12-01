@@ -1,0 +1,70 @@
+problems_dir: "00_problems"
+broken_dir: "00_broken"
+good_dir: "00_good"
+no_sub_mkv_dir: "01_no_sub_mkv"
+no_sub_vid_dir: "02_no_sub_vid"
+clean_dir: "03_clean"
+convert_clean_dir: "04_convert_clean"
+merge_clean_dir: "05_merge_clean"
+convert_merge_clean_dir: "06_convert_merge_clean"
+merge_clean_encode_dir: "07_merge_clean_encode"
+convert_merge_clean_encode_dir: "08_convert_merge_clean_encode"
+clean_encode_dir: "09_clean_encode"
+convert_clean_encode_dir: "10_convert_clean_encode"
+
+# Default directory names
+temp_dir: "temp"
+
+# Report-to-dir mappings
+reports:
+  failures: problems_dir
+  skipped: problems_dir
+  unmatched_subs: problems_dir
+
+  broken_mkv: broken_dir
+  broken_vid: broken_dir
+
+  good_mkv: good_dir
+
+  ext_sub_0_subs_mkv: no_sub_mkv_dir
+  ext_sub_0_subs_vid: no_sub_vid_dir
+  0_subs_mkv: no_sub_mkv_dir
+  0_subs_vid: no_sub_vid_dir
+
+  ok_mkv: clean_dir
+  multi_subs_mkv: clean_dir
+  multi_vids_mkv: clean_dir
+  multi_aud_mkv: clean_dir
+  lang_mismatch_mkv: clean_dir
+  multi_issue_mkv: clean_dir
+  name_mismatch_mkv: clean_dir
+
+  ok_vid: convert_clean_dir
+  multi_subs_vid: convert_clean_dir
+  multi_vids_vid: convert_clean_dir
+  multi_aud_vid: convert_clean_dir
+  lang_mismatch_vid: convert_clean_dir
+  multi_issue_vid: convert_clean_dir
+  name_mismatch_vid: convert_clean_dir
+
+  ext_sub_ok_mkv: merge_clean_dir
+  ext_sub_multi_subs_mkv: merge_clean_dir
+  ext_sub_multi_vids_mkv: merge_clean_dir
+  ext_sub_multi_aud_mkv: merge_clean_dir
+  ext_sub_lang_mismatch_mkv: merge_clean_dir
+  ext_sub_multi_issue_mkv: merge_clean_dir
+  ext_sub_name_mismatch_mkv: merge_clean_dir
+
+  ext_sub_ok_vid: convert_merge_clean_dir
+  ext_sub_multi_subs_vid: convert_merge_clean_dir
+  ext_sub_multi_vids_vid: convert_merge_clean_dir
+  ext_sub_multi_aud_vid: convert_merge_clean_dir
+  ext_sub_lang_mismatch_vid: convert_merge_clean_dir
+  ext_sub_multi_issue_vid: convert_merge_clean_dir
+  ext_sub_name_mismatch_vid: convert_merge_clean_dir
+
+  ext_sub_non_hevc_mkv: merge_clean_encode_dir
+  ext_sub_non_hevc_vid: convert_merge_clean_encode_dir
+
+  non_hevc_mkv: clean_encode_dir
+  non_hevc_vid: convert_clean_encode_dir

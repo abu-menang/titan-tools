@@ -8,22 +8,25 @@ shell auto-completion via ``argcomplete``.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, cast
 
 try:  # pragma: no cover - completion optional in tests
-    import argcomplete
+    import argcomplete  # type: ignore
 except Exception:  # pragma: no cover
     argcomplete = None  # type: ignore[assignment]
 
 from common.base.logging import setup_logging
 from common.shared.loader import load_task_config
-from video.mkv_clean import resolve_tracks_csvs, vid_mkv_clean
 from video.rename import resolve_name_list_csvs, vid_rename
-from video.scan import vid_mkv_scan
+from common.utils.track_utils import resolve_tracks_csvs
+from video.scanners.scan_tracks import vid_mkv_scan
+from video.scanners.scan_hevc import vid_mkv_scan_hevc
 from video.hevc_convert import hevc_convert
 from video.mkv_extract_subtitles import vid_mkv_extract_subs
 from video.srt_clean import vid_srt_clean
+from video.cleaner import run_cleaner
 
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "config.yaml"
@@ -98,7 +101,8 @@ def cli_vid_mkv_scan(argv: Optional[Iterable[str]] = None) -> int:
     cfg = _load_task_payload("vid_mkv_scan", args.config)
     roots = _as_paths(cfg.get("roots", []))
     output_dir = Path(cfg["output_dir"]) if cfg.get("output_dir") else None
-    output_root = Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None
+    output_root_val = cfg.get("tracks_root") or cfg.get("__output_root__") or cfg.get("output_root")
+    output_root = Path(output_root_val) if output_root_val else None
     dry_run_cfg = bool(cfg.get("dry_run", False))
     vid_mkv_scan(
         roots=roots or None,
@@ -107,6 +111,44 @@ def cli_vid_mkv_scan(argv: Optional[Iterable[str]] = None) -> int:
         write_csv_file=not args.no_write,
         dry_run=args.dry_run or dry_run_cfg,
         batch_size=cfg.get("batch_size"),
+    )
+    return 0
+
+
+def cli_vid_scan_hevc(argv: Optional[Iterable[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Scan for non-HEVC videos and emit reports.")
+    parser.add_argument("--config", "-c", help="Path to configuration YAML (defaults to repo config).")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Force dry-run behaviour regardless of config settings.",
+    )
+    parser.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Skip writing CSV outputs (prints logs only).",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        help="Limit rows per CSV; if omitted uses config.",
+    )
+    _enable_autocomplete(parser)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    cfg = _load_task_payload("vid_scan_hevc", args.config)
+    roots = _as_paths(cfg.get("roots", []))
+    output_dir = Path(cfg["output_dir"]) if cfg.get("output_dir") else None
+    output_root_val = cfg.get("hevc_root") or cfg.get("__output_root__") or cfg.get("output_root")
+    output_root = Path(output_root_val) if output_root_val else None
+    dry_run_cfg = bool(cfg.get("dry_run", False))
+    vid_mkv_scan_hevc(
+        roots=roots or None,
+        output_dir=output_dir,
+        output_root=output_root,
+        write_csv_file=not args.no_write and bool(cfg.get("write_csv_file", True)),
+        dry_run=args.dry_run or dry_run_cfg,
+        batch_size=args.batch_size if args.batch_size is not None else cfg.get("batch_size"),
     )
     return 0
 
@@ -123,6 +165,11 @@ def cli_vid_mkv_clean(argv: Optional[Iterable[str]] = None) -> int:
     if not roots:
         raise SystemExit("vid_mkv_clean config requires at least one root")
 
+    try:
+        from video import mkv_clean
+    except Exception as exc:  # pragma: no cover - import should generally succeed
+        raise SystemExit(f"Failed to import video.mkv_clean: {exc}") from exc
+
     output_dir = Path(cfg["output_dir"]) if cfg.get("output_dir") else None
     output_root = Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None
     dry_run_cfg = bool(cfg.get("dry_run", False))
@@ -132,13 +179,16 @@ def cli_vid_mkv_clean(argv: Optional[Iterable[str]] = None) -> int:
     if definition_override:
         targets = [Path(definition_override).expanduser().resolve()]
     else:
+        resolver = getattr(mkv_clean, "resolve_tracks_csvs", None)
+        if resolver is None:
+            raise SystemExit("video.mkv_clean.resolve_tracks_csvs is missing; cannot locate track CSVs.")
         part_sequence = csv_parts if csv_parts else None
-        targets = resolve_tracks_csvs(roots, output_root, part_sequence)
+        targets = resolver(roots, output_root, part_sequence)
         if not targets:
             raise SystemExit("Could not locate mkv_scan track CSVs for the requested configuration.")
 
     for definition_path in targets:
-        vid_mkv_clean(
+        mkv_clean.vid_mkv_clean(
             def_file=definition_path,
             roots=roots,
             output_dir=output_dir,
@@ -186,7 +236,7 @@ def cli_vid_rename(argv: Optional[Iterable[str]] = None) -> int:
     for name_list_path in targets:
         vid_rename(
             name_list_file=name_list_path,
-            roots=roots,
+            roots=cast(List[Path | str], roots or []),
             output_dir=output_dir,
             output_root=output_root,
             update_metadata=update_metadata,
@@ -224,6 +274,69 @@ def cli_vid_hevc_convert(argv: Optional[Iterable[str]] = None) -> int:
         dry_run=args.dry_run or dry_run_cfg,
         preset=preset_cfg,
         crf=crf_cfg,
+    )
+    return 0
+
+
+def cli_vid_cleaner(argv: Optional[Iterable[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Discover clean_dir CSVs and run the cleaner workflow from YAML config."
+    )
+    parser.add_argument("--config", "-c", help="Path to configuration YAML (defaults to repo config).")
+    parser.add_argument("--dry-run", action="store_true", help="Force dry-run behaviour.")
+    _enable_autocomplete(parser)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    cfg = _load_task_payload("vid_cleaner", args.config)
+    roots = _as_paths(cfg.get("roots", []))
+    output_dir = Path(cfg["output_dir"]) if cfg.get("output_dir") else None
+    output_root = Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None
+    dry_run_cfg = bool(cfg.get("dry_run", False))
+
+    run_cleaner(
+        roots=roots or None,
+        output_root=output_root,
+        output_dir=output_dir,
+        dry_run=args.dry_run or dry_run_cfg,
+    )
+    return 0
+
+
+def _load_conv_cleaner():
+    conv_path = Path(__file__).resolve().parents[1] / "video" / "02_no_sub_vid" / "conv_cleaner.py"
+    spec = importlib.util.spec_from_file_location("video.no_sub_conv_cleaner", conv_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load conv_cleaner from {conv_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def cli_vid_conv_cleaner(argv: Optional[Iterable[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Discover no_sub_vid_dir CSVs and run conversion cleaner workflow to MKV.",
+    )
+    parser.add_argument("--config", "-c", help="Path to configuration YAML (defaults to repo config).")
+    parser.add_argument("--dry-run", action="store_true", help="Force dry-run behaviour.")
+    _enable_autocomplete(parser)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    cfg = _load_task_payload("vid_conv_cleaner", args.config)
+    roots = _as_paths(cfg.get("roots", []))
+    output_dir = Path(cfg["output_dir"]) if cfg.get("output_dir") else None
+    output_root = Path(cfg["__output_root__"]) if cfg.get("__output_root__") else None
+    dry_run_cfg = bool(cfg.get("dry_run", False))
+
+    conv_mod = _load_conv_cleaner()
+    run_conv_cleaner = getattr(conv_mod, "run_conv_cleaner", None)
+    if run_conv_cleaner is None:
+        raise ImportError("conv_cleaner.py missing run_conv_cleaner")
+
+    run_conv_cleaner(
+        roots=roots or None,
+        output_root=output_root,
+        output_dir=output_dir,
+        dry_run=args.dry_run or dry_run_cfg,
     )
     return 0
 
@@ -374,9 +487,12 @@ def cli_vid_srt_clean(argv: Optional[Iterable[str]] = None) -> int:
 
 
 __all__ = [
+    "cli_vid_cleaner",
+    "cli_vid_conv_cleaner",
     "cli_vid_mkv_clean",
     "cli_vid_mkv_extract_subs",
     "cli_vid_mkv_scan",
+    "cli_vid_scan_hevc",
     "cli_vid_rename",
     "cli_vid_hevc_convert",
     "cli_vid_srt_clean",
