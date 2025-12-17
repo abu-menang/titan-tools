@@ -26,7 +26,6 @@ VIDEO_EXTS: set[str] = set(MEDIA_TYPES.video_exts)
 MKV_EXTS: set[str] = {".mkv"}
 SUBTITLE_EXTS: set[str] = set(MEDIA_TYPES.subtitle_exts)
 TRACK_COLUMNS: List[ColumnSpec] = _SCAN_CFG.columns.get("track", [])
-REPORT_DIR_MAP = _SCAN_CFG.report_dir_map
 BASE_DIR_MAP = _SCAN_CFG.base_dir_map
 
 
@@ -52,7 +51,22 @@ def vid_mkv_scan_hevc(
     log.info("output_dir=%s output_root=%s dry_run=%s", output_dir, output_root, dry_run)
 
     primary_root = resolved_roots[0] if resolved_roots else Path.cwd()
-    base_output_dir = output_dir or output_root or primary_root
+    encode_dir_name = BASE_DIR_MAP.get("encode_dir", "encode")
+
+    def _resolve_base_dir() -> Path:
+        if output_dir:
+            base = Path(output_dir).expanduser()
+            if not base.is_absolute():
+                base = (primary_root / base).resolve()
+            return base
+        if output_root:
+            base = Path(output_root).expanduser()
+            if not base.is_absolute():
+                base = (primary_root / base).resolve()
+            return base
+        return primary_root
+
+    base_output_dir = _resolve_base_dir() / encode_dir_name
     if not dry_run:
         ensure_dir(base_output_dir)
     log.info("📁 report_dir=%s", base_output_dir)
@@ -89,6 +103,7 @@ def vid_mkv_scan_hevc(
         for p in files:
             code, payload, err = probe_mkvmerge(p)
             tag_val = _tag_for_path(p)
+            tracks: List[Dict[str, str]] = []
             if payload:
                 tracks = extract_tracks(p, payload)
                 for tr in tracks:
@@ -97,18 +112,12 @@ def vid_mkv_scan_hevc(
             else:
                 results.append(_ProbeResult(path=p, failure_reason=err or "probe_failed"))
             if payload:
-                by_type: Dict[str, int] = {"video": 0, "audio": 0, "subtitles": 0}
-                for t in payload.get("tracks", []):
-                    ttype = (t.get("type") or "").lower()
-                    if ttype in by_type:
-                        by_type[ttype] += 1
-                log.info(
-                    '🔍 probed "%s" video=%d audio=%d subs=%d',
-                    p,
-                    by_type["video"],
-                    by_type["audio"],
-                    by_type["subtitles"],
+                has_hevc = any(
+                    (t.get("type") or "").lower() == "video"
+                    and "hevc" in (t.get("codec") or "").lower()
+                    for t in tracks
                 )
+                log.info('🔍 probed "%s" hevc=%s', p, "yes" if has_hevc else "no")
         return results
 
     mkv_probe = [r for r in _probe_list(mkv_files) if not r.failure_reason]
@@ -170,35 +179,57 @@ def vid_mkv_scan_hevc(
 
     written_reports: Dict[str, Dict[str, object]] = {}
 
-    def _write(name: str, rows: List[List[Dict[str, str]]], cols: List[ColumnSpec]):
-        if not rows or not write_csv_file:
-            return
-        total_rows = sum(len(r) for r in rows)
-        if total_rows == 0:
-            return
-        dir_key = REPORT_DIR_MAP.get(name)
-        base_dir_name = BASE_DIR_MAP.get(dir_key, dir_key) if dir_key else None
-        out_dir = Path(base_output_dir)
-        if base_dir_name:
-            out_dir = out_dir / str(base_dir_name)
-        res = write_tabular_reports(rows, name, cols, output_dir=out_dir, dry_run=dry_run)
-        written_reports[name] = {
+    def _dedupe_rows(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """Remove duplicate files by output/path to avoid writing repeat entries."""
+        seen: Set[str] = set()
+        unique: List[Dict[str, str]] = []
+        for row in rows:
+            key = str(row.get("output_path") or row.get("path") or row.get("input_path") or "")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique.append(row)
+        return unique
+
+    combined: List[Dict[str, str]] = _dedupe_rows(mkv_rows + non_mkv_rows + mkv_ext_rows + vid_ext_rows)
+
+    if combined and write_csv_file:
+        res = write_tabular_reports([combined], "non_hevc", TRACK_COLUMNS, output_dir=base_output_dir, dry_run=dry_run)
+        written_reports["non_hevc"] = {
             "paths": res.csv_paths,
-            "rows": total_rows,
-            "dir": str(base_dir_name) if base_dir_name else "base_output_dir",
+            "rows": len(combined),
+            "dir": str(base_output_dir),
         }
-        log.info("📊 %s report saved (rows=%d)", name, total_rows)
+        log.info("📊 non_hevc report saved (rows=%d)", len(combined))
 
-    _write("non_hevc_mkv", [mkv_rows], TRACK_COLUMNS)
-    _write("non_hevc_vid", [non_mkv_rows], TRACK_COLUMNS)
-    _write("ext_sub_non_hevc_mkv", [mkv_ext_rows], TRACK_COLUMNS)
-    _write("ext_sub_non_hevc_vid", [vid_ext_rows], TRACK_COLUMNS)
-
-    combined: List[Dict[str, object]] = []
-    combined.extend(dict(r) for r in mkv_rows)
-    combined.extend(dict(r) for r in non_mkv_rows)
-    combined.extend(dict(r) for r in mkv_ext_rows)
-    combined.extend(dict(r) for r in vid_ext_rows)
+    total_files = len(mkv_files) + len(vid_files) + len(sub_files)
+    total_video_files = len(mkv_files) + len(vid_files)
+    hevc_video_files = sum(
+        1
+        for r in mkv_probe + non_mkv_probe
+        if any(
+            (t.get("type") or "").lower() == "video"
+            and "hevc" in (t.get("codec") or "").lower()
+            for t in r.tracks
+        )
+    )
+    non_hevc_video_files = sum(
+        1
+        for r in mkv_probe + non_mkv_probe
+        if r.tracks
+        and not any(
+            (t.get("type") or "").lower() == "video"
+            and "hevc" in (t.get("codec") or "").lower()
+            for t in r.tracks
+        )
+    )
+    log.info(
+        "🧾 summary total_files=%d video_files=%d hevc_videos=%d non_hevc_videos=%d",
+        total_files,
+        total_video_files,
+        hevc_video_files,
+        non_hevc_video_files,
+    )
     return combined
 
 

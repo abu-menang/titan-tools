@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Convenience wrapper for discovering clean_dir CSVs and running the cleaner workflow.
+# Convenience wrapper for running the cleaner workflow targeting the 02_no_sub_vid directory.
 
 set -euo pipefail
 
@@ -27,14 +27,25 @@ import sys
 from pathlib import Path
 
 from common.base.logging import setup_logging
+from common.shared.loader import load_output_dirs
 
 cfg = json.loads(base64.b64decode(sys.argv[1]).decode("utf-8"))
 logging_cfg = cfg.pop("__logging__", {}) or {}
-output_root_val = cfg.get("__output_root__") or cfg.get("output_root")
-output_root = Path(output_root_val).expanduser() if output_root_val else None
+target_dir_key = "no_sub_vid_dir"
+target_dir_name = str(load_output_dirs().get(target_dir_key) or "02_no_sub_vid")
+tracks_root = cfg.get("tracks_root")
+output_root_val = tracks_root or cfg.get("__output_root__") or cfg.get("output_root")
+output_root = Path(output_root_val) if output_root_val else None
 output_dir_cfg = cfg.get("output_dir")
-output_dir = Path(output_dir_cfg).expanduser() if output_dir_cfg else (output_root if output_root else None)
-log_dir_override = (output_dir or output_root) / "logs" if (output_dir or output_root) else None
+if output_dir_cfg:
+    output_dir = Path(output_dir_cfg)
+elif output_root:
+    output_dir = output_root / target_dir_name
+else:
+    raise SystemExit("output_dir not provided and tracks_root/__output_root__/output_root missing; cannot continue.")
+
+output_dir = output_dir.expanduser().resolve()
+log_dir_override = output_dir / "logs"
 
 use_rich = logging_cfg.get("use_rich")
 if isinstance(use_rich, str):
@@ -49,25 +60,32 @@ if isinstance(use_rich, str):
 setup_logging(
     level=logging_cfg.get("level"),
     use_rich=use_rich,
-    log_dir=str(log_dir_override) if log_dir_override else logging_cfg.get("log_dir"),
+    log_dir=str(log_dir_override),
     file_prefix=logging_cfg.get("file_prefix"),
 )
 
-log = logging.getLogger("vid_cleaner")
+log = logging.getLogger("clean_02")
 log.info(
-    "Config loaded for vid_cleaner (roots=%s, output_dir=%s, output_root=%s, dry_run=%s)",
+    "Config loaded for clean-02 (roots=%s, output_dir=%s, target_dir=%s, tracks_root=%s, output_root=%s, dry_run=%s)",
     cfg.get("roots"),
     output_dir,
-    output_root,
+    target_dir_name,
+    tracks_root,
+    cfg.get("__output_root__"),
     cfg.get("dry_run"),
 )
 
-run_cleaner = importlib.import_module("video.cleaners.clean").run_cleaner
+run_cleaner = importlib.import_module("video.cleaners.cleaner").run_cleaner
+
+if not output_dir.is_dir():
+    raise SystemExit(f"output_dir not found: {output_dir}")
 
 run_cleaner(
     roots=[Path(p) for p in cfg.get("roots", [])] or None,
     output_root=output_root,
     output_dir=output_dir,
     dry_run=bool(cfg.get("dry_run", False)),
+    clean_dir=target_dir_name,
+    extra_tags=["no_sub"],
 )
 PY

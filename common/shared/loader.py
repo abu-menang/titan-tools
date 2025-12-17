@@ -86,6 +86,10 @@ TASK_SCHEMAS: Dict[str, Dict[str, Iterable[str]]] = {
         "required": [],
         "optional": ["roots", "output_dir", "dry_run"],
     },
+    "vid_tagger": {
+        "required": ["csv_dir"],
+        "optional": ["tags", "dry_run", "roots"],
+    },
     "file_scan": {
         "required": ["roots"],
         "optional": ["output_dir", "base_name", "batch_size"],
@@ -106,13 +110,14 @@ FIELD_ALIASES = {
 }
 
 SINGLE_PATH_FIELDS = {"definition", "output_dir", "mapping"}
+SINGLE_PATH_FIELDS = {"definition", "output_dir", "mapping", "csv_dir"}
 MULTI_PATH_FIELDS = {"roots"}
 BOOLEAN_FIELDS = {"dry_run", "no_meta", "overwrite"}
 INTEGER_FIELDS = {"batch_size", "crf", "min_text_chars"}
 INTEGER_LIST_FIELDS = {"csv_part"}
 YES_NO_FIELDS = set()
 LOGGING_ALLOWED_KEYS = {"level", "use_rich", "log_dir", "file_prefix"}
-TASK_DEFAULT_ALLOWED_KEYS = {"roots", "output_root"}
+TASK_DEFAULT_ALLOWED_KEYS = {"roots", "output_root", "tracks_root", "hevc_root"}
 SHARED_ALLOWED_KEYS = {"batch_size", "csv_part"}
 
 YES_VALUES = {"1", "true", "yes", "y", "on"}
@@ -407,15 +412,27 @@ def load_task_config(task: str, config_path: str | Path | None = None) -> Config
         normalized.pop("output_dir", None)
     if task_defaults.get("output_root"):
         normalized["__output_root__"] = task_defaults["output_root"]
+    for custom_root_key in ("tracks_root", "hevc_root"):
+        if task_defaults.get(custom_root_key):
+            normalized[custom_root_key] = task_defaults[custom_root_key]
+    if "__output_root__" not in normalized and task_defaults.get("hevc_root"):
+        normalized["__output_root__"] = task_defaults["hevc_root"]
     logging_settings = _extract_logging_settings(root_config)
     merged_logging = dict(logging_settings) if logging_settings else {}
     if task_logging_override:
         merged_logging.update(task_logging_override)
+    log_root = (
+        normalized.get("output_dir")
+        or normalized.get("__output_root__")
+        or normalized.get("tracks_root")
+        or task_defaults.get("tracks_root")
+        or task_defaults.get("output_root")
+    )
     merged_logging = _apply_logging_defaults(
         merged_logging,
         primary_root,
         normalized.get("output_dir"),
-        task_defaults.get("output_root") or normalized.get("__output_root__"),
+        log_root,
     )
     if merged_logging:
         normalized["__logging__"] = merged_logging
@@ -537,19 +554,25 @@ def _extract_task_defaults(root: Mapping[str, Any], config_path: Path) -> Dict[s
         defaults["roots"] = normalized_roots
         if normalized_roots:
             defaults["primary_root"] = str(Path(normalized_roots[0]).expanduser().resolve())
+
+    def _resolve_default_path(value: Any, key: str) -> str:
+        if value is None:
+            raise ValueError(f"'{key}' in {TASK_DEFAULTS_KEY} cannot be null in {config_path}")
+        candidate = Path(str(value)).expanduser()
+        if candidate.is_absolute():
+            return str(candidate.resolve())
+        base_root = defaults.get("primary_root")
+        if not base_root:
+            raise ValueError(
+                f"'{key}' in {TASK_DEFAULTS_KEY} is relative but no root path is available to anchor it"
+            )
+        return str((Path(base_root) / candidate).resolve())
+
     if "output_root" in section:
-        output_root = section["output_root"]
-        if output_root is None:
-            raise ValueError(f"'output_root' in {TASK_DEFAULTS_KEY} cannot be null in {config_path}")
-        candidate = Path(str(output_root)).expanduser()
-        if not candidate.is_absolute():
-            base_root = defaults.get("primary_root")
-            if not base_root:
-                raise ValueError(
-                    f"'output_root' in {TASK_DEFAULTS_KEY} is relative but no root path is available to anchor it"
-                )
-            candidate = Path(base_root) / candidate
-        defaults["output_root"] = str(candidate.resolve())
+        defaults["output_root"] = _resolve_default_path(section["output_root"], "output_root")
+    for key in ("tracks_root", "hevc_root"):
+        if key in section:
+            defaults[key] = _resolve_default_path(section[key], key)
     return defaults
 
 
@@ -647,15 +670,11 @@ def _apply_logging_defaults(
         return {}
 
     cfg = dict(logging_cfg)
-    resolved_output_dir = (
-        Path(output_dir).expanduser().resolve()
-        if output_dir
-        else None
-    )
+    resolved_output_dir = Path(output_dir).expanduser().resolve() if output_dir else None
     resolved_output_root = (
         Path(output_root).expanduser().resolve()
         if output_root
-        else (resolved_output_dir.parent if resolved_output_dir else None)
+        else resolved_output_dir
     )
     base_root = (
         resolved_output_root

@@ -14,9 +14,9 @@ logging:
 task_defaults:
   roots:
     #- "/drive/HYPERION/movies/anime/"
-    #- "/drive/HYPERION/movies/tt/"
-    - "/drive/ATLAS/series/test/"
-    #- "/drive/ATLAS/series/anime/Studio Apartment, Good Lighting, Angel Included/"
+    - "/drive/ATLAS/series/english/IT - Welcome to Derry/"
+    #- "/drive/ATLAS/series/test/"
+    #- "/drive/HYPERION/movies/chinese/"
   tracks_root: "./00_tracks"
   hevc_root: "./00_hevc"
   
@@ -94,6 +94,13 @@ tasks:
     languages: ["eng"]
     logging:
       file_prefix: "srt_clean"
+
+  vid_tagger:
+    csv_dir: "./00_tracks/03_clean"
+    tags: ["FINAL"]
+    dry_run: false
+    logging:
+      file_prefix: "tagger"
 
   file_scan:
     base_name: "file_scan"

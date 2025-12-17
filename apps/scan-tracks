@@ -32,6 +32,12 @@ from common.base.logging import setup_logging
 
 cfg = json.loads(base64.b64decode(sys.argv[1]).decode("utf-8"))
 logging_cfg = cfg.pop("__logging__", {}) or {}
+output_root_val = cfg.get("tracks_root") or cfg.get("__output_root__") or cfg.get("output_root")
+output_root = Path(output_root_val) if output_root_val else None
+output_dir = Path(cfg["output_dir"]) if cfg.get("output_dir") else (
+    output_root if output_root else None
+)
+log_dir_override = (output_dir or output_root) / "logs" if (output_dir or output_root) else None
 
 use_rich = logging_cfg.get("use_rich")
 if isinstance(use_rich, str):
@@ -46,7 +52,7 @@ if isinstance(use_rich, str):
 setup_logging(
     level=logging_cfg.get("level"),
     use_rich=use_rich,
-    log_dir=logging_cfg.get("log_dir"),
+    log_dir=str(log_dir_override) if log_dir_override else logging_cfg.get("log_dir"),
     file_prefix=logging_cfg.get("file_prefix"),
 )
 
@@ -54,8 +60,8 @@ log = logging.getLogger("vid_mkv_scan")
 log.info(
     "Config loaded for vid_mkv_scan (roots=%s, output_dir=%s, output_root=%s, dry_run=%s, batch_size=%s)",
     cfg.get("roots"),
-    cfg.get("output_dir"),
-    cfg.get("__output_root__"),
+    output_dir,
+    output_root,
     cfg.get("dry_run"),
     cfg.get("batch_size"),
 )
@@ -64,8 +70,8 @@ vid_mkv_scan = importlib.import_module("video.scanners.scan_tracks").vid_mkv_sca
 
 vid_mkv_scan(
     roots=[Path(p) for p in cfg.get("roots", [])],
-    output_dir=Path(cfg["output_dir"]) if cfg.get("output_dir") else None,
-    output_root=Path(cfg.get("tracks_root") or cfg.get("__output_root__") or cfg.get("output_root") or "") if (cfg.get("tracks_root") or cfg.get("__output_root__") or cfg.get("output_root")) else None,
+    output_dir=output_dir,
+    output_root=output_root,
     dry_run=bool(cfg.get("dry_run", False)),
     batch_size=cfg.get("batch_size"),
 )

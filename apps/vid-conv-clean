@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Convenience wrapper for discovering clean_dir CSVs and running the cleaner workflow.
+# Convenience wrapper for discovering convert/no-sub CSVs and running the conversion cleaner workflow.
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ fi
 export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 
 CONFIG_PATH="${1:-$ROOT_DIR/configs/config.yaml}"
-CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_cleaner "$CONFIG_PATH")"
+CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_conv_cleaner "$CONFIG_PATH")"
 
 "$PYTHON_BIN" - "$CONFIG_PAYLOAD" <<'PY'
 import base64
@@ -53,18 +53,18 @@ setup_logging(
     file_prefix=logging_cfg.get("file_prefix"),
 )
 
-log = logging.getLogger("vid_cleaner")
+log = logging.getLogger("vid_conv_cleaner")
 log.info(
-    "Config loaded for vid_cleaner (roots=%s, output_dir=%s, output_root=%s, dry_run=%s)",
+    "Config loaded for vid_conv_cleaner (roots=%s, output_dir=%s, output_root=%s, dry_run=%s)",
     cfg.get("roots"),
     output_dir,
     output_root,
     cfg.get("dry_run"),
 )
 
-run_cleaner = importlib.import_module("video.cleaners.clean").run_cleaner
+run_conv_cleaner = importlib.import_module("video.cleaners.conv_clean").run_conv_cleaner
 
-run_cleaner(
+run_conv_cleaner(
     roots=[Path(p) for p in cfg.get("roots", [])] or None,
     output_root=output_root,
     output_dir=output_dir,

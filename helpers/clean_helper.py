@@ -15,9 +15,10 @@ from typing import TypedDict
 from common.base.fs import ensure_dir, human_size
 from common.base.logging import get_logger
 from common.base.ops import run_command
-from common.shared.report import write_csv
+from common.shared.loader import load_media_types
+from common.shared.report import load_tabular_rows, write_csv
 from common.shared.utils import Progress
-from tqdm.contrib.logging import logging_redirect_tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm # type: ignore
 from common.utils.track_utils import (
     build_mkvmerge_cmd,
     build_track_ids,
@@ -29,10 +30,13 @@ from common.utils.track_utils import (
 )
 from common.utils.tag_utils import write_fs_tag
 
+Replacement = Tuple[str, str, str] | Tuple[str, str, str, str]
+
+
 class CleanHelperResult(TypedDict):
     results: List[Dict[str, str]]
     cleaned: List[str]
-    replacements: List[Tuple[str, str, str]]
+    replacements: List[Replacement]
     dry_run: List[str]
     missing: List[str]
     nochange: List[str]
@@ -67,16 +71,61 @@ def clean_with_tracks_csv(
     run_dir: Optional[Path] = None,
     clean_output_dir: Optional[Path] = None,
     target_ext: Optional[str] = None,
+    extra_tags: Optional[List[str]] = None,
 ) -> CleanHelperResult:
     csv_path = Path(tracks_csv).expanduser().resolve()
     if not csv_path.exists():
         log.error("❌ Tracks CSV not found: %s", csv_path)
         return _empty_result(csv_path)
 
+    raw_rows, _ = load_tabular_rows(csv_path)
     track_definitions = load_tracks_from_csv(csv_path)
     if not track_definitions:
         log.error("❌ No track definitions available in %s; aborting.", csv_path)
         return _empty_result(csv_path)
+
+    subtitle_exts = {s.lower() for s in load_media_types().subtitle_exts}
+
+    def _coerce_bool(val: object) -> Optional[bool]:
+        if val is None:
+            return None
+        sval = str(val).strip().lower()
+        if sval in {"1", "true", "yes", "y", "on"}:
+            return True
+        if sval in {"0", "false", "no", "n", "off"}:
+            return False
+        return None
+
+    external_subs: Dict[str, List[dict]] = {}
+    for row in raw_rows:
+        ttype = str(row.get("type") or "").lower()
+        if ttype != "subtitles":
+            continue
+        input_path_val = row.get("input_path") or row.get("path")
+        output_path_val = row.get("output_path")
+        if not input_path_val or not output_path_val:
+            continue
+        input_path = Path(str(input_path_val)).expanduser()
+        if input_path.suffix.lower() not in subtitle_exts:
+            continue
+        tid = str(row.get("id") or "").strip()
+        if not tid:
+            continue
+        name_val = (row.get("name") or row.get("track_name") or "").strip() or None
+        edited_val = (row.get("edited_name") or "").strip() or None
+        desired_name = edited_val if edited_val and edited_val != name_val else None
+        normalized_output = str(Path(str(output_path_val)).expanduser().resolve())
+        external_subs.setdefault(normalized_output, []).append(
+            {
+                "id": tid,
+                "path": input_path.expanduser().resolve(),
+                "lang": (row.get("lang") or "").strip() or None,
+                "name": (row.get("name") or "").strip() or None,
+                "desired_name": desired_name,
+                "default": _coerce_bool(row.get("default")),
+                "forced": _coerce_bool(row.get("forced")),
+            }
+        )
 
     base_output_dir = ensure_dir(output_dir or Path("./reports"))
     run_stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -97,7 +146,8 @@ def clean_with_tracks_csv(
 
     results: List[Dict[str, str]] = []
     cleaned_files: List[str] = []
-    replacements: List[Tuple[str, str, str]] = []
+    replacements: List[Replacement] = []
+    external_sidecars: Dict[str, List[Path]] = {}
     dry_run_files: List[str] = []
     missing_files: List[str] = []
     nochange_files: List[str] = []
@@ -123,11 +173,20 @@ def clean_with_tracks_csv(
     with logging_redirect_tqdm():
         for mkv_path_str, track_rows in progress:
             mkv_path = Path(mkv_path_str)
+            if mkv_path.suffix.lower() in subtitle_exts:
+                # Skip standalone subtitle files; they are handled as external tracks elsewhere.
+                continue
+            base_output = mkv_path.with_suffix(".mkv")
+            output_filename = base_output.name
+            output_path = base_output
+            if target_ext:
+                output_filename = base_output.with_suffix(target_ext).name
+                output_path = base_output.with_suffix(target_ext)
             if not mkv_path.exists():
                 _log_with_progress("warning", "⚠️ File not found: %s", mkv_path)
                 results.append(
                     {
-                        "name": mkv_path.name,
+                        "name": output_filename,
                         "status": "missing",
                         "message": "file not found",
                         "size_old": "",
@@ -141,7 +200,7 @@ def clean_with_tracks_csv(
             if current_info is None:
                 results.append(
                     {
-                        "name": mkv_path.name,
+                        "name": output_filename,
                         "status": "error",
                         "message": "failed to probe file",
                         "size_old": human_size(mkv_path.stat().st_size),
@@ -157,7 +216,7 @@ def clean_with_tracks_csv(
                 _log_with_progress("error", "❌ %s: %s.", mkv_path.name, msg)
                 results.append(
                     {
-                        "name": mkv_path.name,
+                        "name": output_filename,
                         "status": "error",
                         "message": msg,
                         "size_old": human_size(mkv_path.stat().st_size),
@@ -174,7 +233,7 @@ def clean_with_tracks_csv(
                 _log_with_progress("info", "✅ %s: already matches track plan.", mkv_path.name)
                 results.append(
                     {
-                        "name": mkv_path.name,
+                        "name": output_filename,
                         "status": "ok",
                         "message": "; ".join(reasons) if reasons else "already clean",
                         "size_old": human_size(mkv_path.stat().st_size),
@@ -186,12 +245,79 @@ def clean_with_tracks_csv(
 
             video_ids, audio_ids, subtitle_ids = build_track_ids(plan)
             track_meta = build_track_metadata(plan)
-            dest_name = mkv_path.with_suffix(target_ext).name if target_ext else mkv_path.name
-            cleaned_tmp = cleaned_dir / dest_name
+            cleaned_tmp = cleaned_dir / output_filename
             if cleaned_tmp.exists():
                 cleaned_tmp.unlink()
 
-            cmd = build_mkvmerge_cmd(mkv_path, cleaned_tmp, video_ids, audio_ids, subtitle_ids, track_meta)
+            target_keys = {
+                str(mkv_path.resolve()),
+                str(output_path.expanduser().resolve()),
+            }
+            ext_entries_raw: List[dict] = []
+            for key in target_keys:
+                ext_entries_raw.extend(external_subs.get(key, []))
+            seen_sidecars: set[tuple[Path, str]] = set()
+            ext_entries: List[dict] = []
+            for entry in ext_entries_raw:
+                sidecar_key = (entry["path"], entry["id"])
+                if sidecar_key in seen_sidecars:
+                    continue
+                seen_sidecars.add(sidecar_key)
+                if entry["path"].exists():
+                    ext_entries.append(entry)
+
+            def _apply_track_meta(cmd_list: List[str], meta: Dict[str, dict]) -> None:
+                for tid, meta_cfg in meta.items():
+                    if meta_cfg.get("name") is not None:
+                        cmd_list += ["--track-name", f"{tid}:{meta_cfg['name']}"]
+                    if meta_cfg.get("lang"):
+                        cmd_list += ["--language", f"{tid}:{meta_cfg['lang']}"]
+                    if meta_cfg.get("default") is not None:
+                        cmd_list += ["--default-track", f"{tid}:{'yes' if meta_cfg['default'] else 'no'}"]
+                    if meta_cfg.get("forced") is not None:
+                        cmd_list += ["--forced-track", f"{tid}:{'yes' if meta_cfg['forced'] else 'no'}"]
+
+            if ext_entries:
+                ext_ids = {entry["id"] for entry in ext_entries}
+                subtitle_ids_main = [tid for tid in subtitle_ids if tid not in ext_ids]
+                track_meta_main = {tid: meta for tid, meta in track_meta.items() if tid not in ext_ids}
+                track_order_parts = [f"0:{tid}" for tid in video_ids + audio_ids + subtitle_ids_main]
+
+                cmd = ["mkvmerge", "-o", str(cleaned_tmp)]
+                if video_ids:
+                    cmd += ["--video-tracks", ",".join(video_ids)]
+                if audio_ids:
+                    cmd += ["--audio-tracks", ",".join(audio_ids)]
+                if subtitle_ids_main:
+                    cmd += ["--subtitle-tracks", ",".join(subtitle_ids_main)]
+                _apply_track_meta(cmd, track_meta_main)
+
+                cmd.append(str(mkv_path))
+
+                for idx, entry in enumerate(ext_entries, start=1):
+                    ext_track_id = str(entry.get("source_track_id") or 0)
+                    track_order_parts.append(f"{idx}:{ext_track_id}")
+                    cmd += ["--subtitle-tracks", ext_track_id]
+                    ext_meta = dict(track_meta.get(entry["id"]) or {})
+                    desired_name = entry.get("desired_name") or entry.get("name")
+                    if desired_name:
+                        ext_meta["name"] = desired_name
+                    if entry.get("lang") and not ext_meta.get("lang"):
+                        ext_meta["lang"] = entry["lang"]
+                    if entry.get("default") is not None and ext_meta.get("default") is None:
+                        ext_meta["default"] = entry["default"]
+                    if entry.get("forced") is not None and ext_meta.get("forced") is None:
+                        ext_meta["forced"] = entry["forced"]
+                    if ext_meta:
+                        _apply_track_meta(cmd, {ext_track_id: ext_meta})
+                    cmd.append(str(entry["path"]))
+                external_sidecars[str(cleaned_tmp)] = [entry["path"] for entry in ext_entries]
+
+                if track_order_parts:
+                    cmd += ["--track-order", ",".join(track_order_parts)]
+            else:
+                cmd = build_mkvmerge_cmd(mkv_path, cleaned_tmp, video_ids, audio_ids, subtitle_ids, track_meta)
+
             log.debug("Running mkvmerge: %s", " ".join(cmd))
 
             original_size = mkv_path.stat().st_size
@@ -200,7 +326,7 @@ def clean_with_tracks_csv(
                 _log_with_progress("info", "[DRY-RUN] Would execute: %s", " ".join(cmd))
                 results.append(
                     {
-                        "name": mkv_path.name,
+                        "name": output_filename,
                         "status": "dry-run",
                         "message": "; ".join(reasons),
                         "size_old": human_size(original_size),
@@ -217,7 +343,7 @@ def clean_with_tracks_csv(
                     cleaned_tmp.unlink()
                 results.append(
                     {
-                        "name": mkv_path.name,
+                        "name": output_filename,
                         "status": "error",
                         "message": err.strip() if err else "mkvmerge failed",
                         "size_old": human_size(original_size),
@@ -230,34 +356,42 @@ def clean_with_tracks_csv(
             try:
                 try:
                     tag_val = datetime.now().strftime("%Y_%m_%d-%H_%M")
+                    tags_to_apply = [tag_val]
+                    if extra_tags:
+                        tags_to_apply.extend(extra_tags)
                     if dry_run:
-                        _log_with_progress("info", "[DRY-RUN] Would set user.xdg.tags=%s on %s", tag_val, cleaned_tmp)
+                        _log_with_progress("info", "[DRY-RUN] Would set user.xdg.tags=%s on %s", ",".join(tags_to_apply), cleaned_tmp)
                     else:
-                        if not write_fs_tag(cleaned_tmp, "user.xdg.tags", tag_val):
-                            _log_with_progress("warning", "Failed to tag %s with user.xdg.tags=%s", cleaned_tmp, tag_val)
+                        if not write_fs_tag(cleaned_tmp, "user.xdg.tags", ",".join(tags_to_apply)):
+                            _log_with_progress("warning", "Failed to tag %s with user.xdg.tags=%s", cleaned_tmp, ",".join(tags_to_apply))
                 except Exception:
                     _log_with_progress("warning", "Failed to apply tag to %s", cleaned_tmp)
                 new_size = cleaned_tmp.stat().st_size
                 _log_with_progress("info", "✅ Cleaned %s -> %s", mkv_path.name, cleaned_tmp)
                 results.append(
                     {
-                        "name": mkv_path.name,
+                        "name": output_filename,
                         "status": "cleaned",
                         "message": "; ".join(reasons),
                         "size_old": human_size(original_size),
                         "size_new": human_size(new_size),
                     }
                 )
-                dest_path = mkv_path.with_suffix(target_ext) if target_ext else mkv_path
+                dest_path = output_path
                 cleaned_files.append(str(cleaned_tmp))
                 replacements.append((str(mkv_path), str(cleaned_tmp), str(dest_path)))
+                # If we merged external subtitle sidecars, archive them alongside the original video,
+                # but do not move/replace the sidecar in place (the merged MKV already contains it).
+                if external_sidecars.get(str(cleaned_tmp)):
+                    for sidecar in external_sidecars[str(cleaned_tmp)]:
+                        replacements.append((str(sidecar), str(sidecar), str(sidecar), "archive_only"))
             except Exception as exc:
                 _log_with_progress("error", "💥 Post-remux handling failed for %s: %s", mkv_path.name, exc)
                 if cleaned_tmp.exists():
                     cleaned_tmp.unlink()
                 results.append(
                     {
-                        "name": mkv_path.name,
+                        "name": output_filename,
                         "status": "error",
                         "message": str(exc),
                         "size_old": human_size(original_size),

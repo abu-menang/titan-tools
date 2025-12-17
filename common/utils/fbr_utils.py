@@ -48,7 +48,7 @@ def _unique_file(base: Path, src: Path) -> Path:
 
 
 def move_cleaned_files(
-    replacements: Iterable[Union[Tuple[str, str], Tuple[str, str, str]]],
+    replacements: Iterable[Union[Tuple[str, str], Tuple[str, str, str], Tuple[str, str, str, str]]],
     ori_dir: Path,
     *,
     dry_run: bool = False,
@@ -69,7 +69,11 @@ def move_cleaned_files(
             print(message % args if args else message)
 
     for repl in replacements:
-        if len(repl) == 3:
+        archive_only = False
+        if len(repl) == 4:
+            original, cleaned, dest_override, flag = repl  # type: ignore[misc]
+            archive_only = str(flag).lower() == "archive_only"
+        elif len(repl) == 3:
             original, cleaned, dest_override = repl  # type: ignore[misc]
         else:
             original, cleaned = repl  # type: ignore[misc]
@@ -81,9 +85,9 @@ def move_cleaned_files(
 
         if dry_run:
             _log("info", "[DRY-RUN] Would move original %s -> %s", orig_path, dest_backup)
-            _log("info", "[DRY-RUN] Would move cleaned %s -> %s", cleaned_path, dest_final)
-            moves.append((str(orig_path), str(dest_backup)))
-            moves.append((str(cleaned_path), str(dest_final)))
+            if not archive_only:
+                _log("info", "[DRY-RUN] Would move cleaned %s -> %s", cleaned_path, dest_final)
+                moves.append((str(cleaned_path), str(dest_final)))
             continue
 
         try:
@@ -94,6 +98,9 @@ def move_cleaned_files(
                 _log("info", "Moved original %s -> %s", orig_path, dest_backup)
             else:
                 _log("warning", "Original file missing, cannot archive: %s", orig_path)
+
+            if archive_only:
+                continue
 
             ensure_dir(dest_final.parent)
             if cleaned_path.exists():

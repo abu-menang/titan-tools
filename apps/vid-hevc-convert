@@ -31,6 +31,10 @@ from common.base.logging import setup_logging
 
 cfg = json.loads(base64.b64decode(sys.argv[1]).decode("utf-8"))
 logging_cfg = cfg.pop("__logging__", {}) or {}
+output_root_val = cfg.get("__output_root__") or cfg.get("output_root")
+output_root = Path(output_root_val).expanduser() if output_root_val else None
+output_dir = Path(cfg["output_dir"]).expanduser() if cfg.get("output_dir") else output_root
+log_dir_override = (output_dir or output_root) / "logs" if (output_dir or output_root) else None
 
 use_rich = logging_cfg.get("use_rich")
 if isinstance(use_rich, str):
@@ -45,7 +49,7 @@ if isinstance(use_rich, str):
 setup_logging(
     level=logging_cfg.get("level"),
     use_rich=use_rich,
-    log_dir=logging_cfg.get("log_dir"),
+    log_dir=str(log_dir_override) if log_dir_override else logging_cfg.get("log_dir"),
     file_prefix=logging_cfg.get("file_prefix"),
 )
 
@@ -56,8 +60,6 @@ roots = [Path(p).expanduser() for p in cfg.get("roots", [])]
 if not roots:
     raise SystemExit("vid_hevc_convert requires at least one root directory")
 
-output_dir = Path(cfg["output_dir"]).expanduser() if cfg.get("output_dir") else None
-output_root = Path(cfg["__output_root__"]).expanduser() if cfg.get("__output_root__") else None
 csv_parts = cfg.get("csv_part") or [0]
 
 hevc_convert(

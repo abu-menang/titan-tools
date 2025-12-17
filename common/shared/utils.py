@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Iterable, List, Optional, Any
 
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 from common.base.fs import ensure_dir, human_size
 
 

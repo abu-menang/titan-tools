@@ -322,7 +322,13 @@ def prepare_track_plan(
 
 
 def desired_track_name(entry: dict) -> Optional[str]:
-    return entry.get("suggested_rename") or entry.get("name")
+    original = (entry.get("name") or "").strip()
+    edited = (entry.get("edited_name") or "").strip()
+    suggested = (entry.get("suggested_rename") or "").strip()
+    candidate = edited or suggested
+    if candidate and candidate != original:
+        return candidate
+    return None
 
 
 def compute_track_differences(
@@ -527,16 +533,19 @@ def _normalize_track_entry(row: dict) -> Optional[dict]:
     if track_type not in {"video", "audio", "subtitles"}:
         return None
 
+    edited = (row.get("edited_name") or "").strip() or None
+    suggested = (row.get("suggested_rename") or "").strip() or None
+    name_val = (row.get("name") or row.get("track_name") or "").strip() or None
+    desired_name = edited if edited and edited != name_val else None
+
     entry = {
         "id": track_id,
         "type": track_type,
         "lang": (row.get("lang") or "").strip() or None,
-        "name": (row.get("name") or "").strip() or None,
-        "suggested_rename": (
-            row.get("edited_name")
-            or row.get("suggested_rename")
-            or ""
-        ).strip() or None,
+        "name": name_val,
+        "edited_name": edited,
+        "suggested_rename": suggested,
+        "desired_name": desired_name,
         "default": _parse_bool(row.get("default")),
         "forced": _parse_bool(row.get("forced")),
     }

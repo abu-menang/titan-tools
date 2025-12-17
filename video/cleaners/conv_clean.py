@@ -1,6 +1,6 @@
 """
 Convert non-MKV "no-sub" videos using scan reports, applying the same
-cleaning flow as cleaner.py but targeting MKV outputs.
+cleaning flow as clean.py but targeting MKV outputs.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from typing import Iterable, List, Optional
 
 from common.base.logging import get_logger
 from common.shared.loader import load_output_dirs
-from common.utils.csv_utils import discover_csvs
+from common.utils.csv_utils import latest_timestamped_csvs
 from common.utils.fbr_utils import move_cleaned_files, prepare_clean_run_dirs
 from common.utils.tag_utils import write_fs_tag
 from datetime import datetime
@@ -26,8 +26,22 @@ def discover_no_sub_csvs(
 ) -> List[Path]:
     roots_resolved = [Path(r).expanduser().resolve() for r in roots]
     cfg = load_output_dirs()
-    target_dir = cfg.get("no_sub_vid_dir") or ""
-    return discover_csvs(roots_resolved, output_root, target_dir)
+    target_dirs = [
+        cfg.get("no_sub_vid_dir") or "",
+        cfg.get("convert_clean_dir") or "",
+    ]
+    collected: List[Path] = []
+    for root in roots_resolved:
+        base = Path(output_root).expanduser().resolve() if output_root else root
+        for target_dir in target_dirs:
+            if not target_dir:
+                continue
+            target = base / str(target_dir)
+            if not target.exists() or not target.is_dir():
+                continue
+            collected.extend(sorted(target.glob("*.csv")))
+    latest = latest_timestamped_csvs(collected)
+    return sorted(latest)
 
 
 def run_conv_cleaner(
@@ -39,7 +53,7 @@ def run_conv_cleaner(
     roots = list(roots or [Path.cwd()])
     csvs = discover_no_sub_csvs(roots, output_root)
     if not csvs:
-        log.info("No no_sub_vid_dir CSVs found.")
+        log.info("No tracks CSVs found in no_sub_vid_dir or convert_clean_dir.")
         return
 
     cfg = load_output_dirs()
