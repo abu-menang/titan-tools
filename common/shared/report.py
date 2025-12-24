@@ -86,7 +86,7 @@ def write_csv(
             writer = csv.DictWriter(handle, fieldnames=list(fieldnames or data[0].keys()))
             writer.writeheader()
             writer.writerows(data)
-        log.info(f"📊 CSV report saved → {output_path}")
+        log.debug(f"📊 CSV report saved → {output_path}")
         return output_path
     except Exception as e:
         log.error(f"Failed to write CSV report: {e}")

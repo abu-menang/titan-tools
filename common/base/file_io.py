@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Optional
 
-import yaml
+import yaml  # type: ignore
 
 
 DEFAULT_ENCODING = "utf-8"

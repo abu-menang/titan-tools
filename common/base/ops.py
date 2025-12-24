@@ -89,7 +89,7 @@ def move_to_trash(path: Path | str, dry_run: bool = False) -> bool:
         return True
 
     try:
-        from send2trash import send2trash
+        from send2trash import send2trash # type: ignore
         send2trash(str(p))
         log.debug(f"♻️ Moved to trash: {p}")
         return True

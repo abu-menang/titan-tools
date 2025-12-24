@@ -1,0 +1,40 @@
+default:
+  lang_vid: []
+  lang_aud: ["eng"]
+  lang_sub: ["eng"]
+
+english:
+  lang_vid: []
+  lang_aud: ["eng"]
+  lang_sub: ["eng"]
+
+anime:
+  lang_vid: []
+  lang_aud: ["jpn"]
+  lang_sub: ["eng"]
+
+ecchi:
+  lang_vid: []
+  lang_aud: ["jpn"]
+  lang_sub: ["eng"]
+
+chinese:
+  lang_vid: []
+  lang_aud: ["chi"]
+  lang_sub: ["eng"]
+
+korean:
+  lang_vid: []
+  lang_aud: ["kor"]
+  lang_sub: ["eng"]
+
+japanese:
+  lang_vid: []
+  lang_aud: ["jpn"]
+  lang_sub: ["eng"]
+
+indian:
+  lang_vid: []
+  lang_aud: ["hin", "tam", "tel"]
+  lang_sub: ["eng"]
+

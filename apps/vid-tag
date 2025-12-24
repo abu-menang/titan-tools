@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Repository convenience wrapper for vid-hevc-convert.
-# Activates the local virtualenv if present, loads YAML via common.shared.loader,
-# and executes the underlying Python workflow.
+# Convenience wrapper for tagging files listed in CSVs using vid_tagger.
 
 set -euo pipefail
 
@@ -18,12 +16,12 @@ fi
 export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 
 CONFIG_PATH="${1:-$ROOT_DIR/configs/config.yaml}"
-CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_hevc_convert "$CONFIG_PATH")"
+CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_tagger "$CONFIG_PATH")"
 
 "$PYTHON_BIN" - "$CONFIG_PAYLOAD" <<'PY'
 import base64
 import json
-import importlib
+import logging
 import sys
 from pathlib import Path
 
@@ -31,10 +29,6 @@ from common.base.logging import setup_logging
 
 cfg = json.loads(base64.b64decode(sys.argv[1]).decode("utf-8"))
 logging_cfg = cfg.pop("__logging__", {}) or {}
-output_root_val = cfg.get("__output_root__") or cfg.get("output_root")
-output_root = Path(output_root_val).expanduser() if output_root_val else None
-output_dir = Path(cfg["output_dir"]).expanduser() if cfg.get("output_dir") else output_root
-log_dir_override = (output_dir or output_root) / "logs" if (output_dir or output_root) else None
 
 use_rich = logging_cfg.get("use_rich")
 if isinstance(use_rich, str):
@@ -46,6 +40,8 @@ if isinstance(use_rich, str):
     elif lowered in {"false", "no", "0", "off"}:
         use_rich = False
 
+log_dir_override = Path(cfg["csv_dir"]).expanduser() / "logs" if cfg.get("csv_dir") else None
+
 setup_logging(
     level=logging_cfg.get("level"),
     use_rich=use_rich,
@@ -53,22 +49,16 @@ setup_logging(
     file_prefix=logging_cfg.get("file_prefix"),
 )
 
-convert_module = importlib.import_module("video.hevc_convert")
-hevc_convert = convert_module.hevc_convert
+log = logging.getLogger("vid_tagger")
+log.info("Config loaded for vid_tagger (csv_dir=%s, dry_run=%s, tags=%s)", cfg.get("csv_dir"), cfg.get("dry_run"), cfg.get("tags"))
 
-roots = [Path(p).expanduser() for p in cfg.get("roots", [])]
-if not roots:
-    raise SystemExit("vid_hevc_convert requires at least one root directory")
+from video.tagger import tag_files_from_csv_dir
 
-csv_parts = cfg.get("csv_part") or [0]
-
-hevc_convert(
-    roots=roots,
-    output_dir=output_dir,
-    output_root=output_root,
-    csv_parts=csv_parts,
+res = tag_files_from_csv_dir(
+    cfg["csv_dir"],
+    cfg.get("tags"),
     dry_run=bool(cfg.get("dry_run", False)),
-    preset=cfg.get("preset") or "slow",
-    crf=int(cfg.get("crf", 23)),
 )
+
+log.info("Tagging complete: csvs=%s tagged=%s skipped=%s missing=%s", res.get("csvs"), res.get("tagged"), res.get("skipped"), res.get("missing"))
 PY

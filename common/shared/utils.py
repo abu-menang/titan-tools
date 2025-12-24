@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Iterable, List, Optional, Any
 
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 from common.base.fs import ensure_dir, human_size
 
 
@@ -134,7 +134,7 @@ class Progress:
     """
 
     def __init__(self, iterable: Iterable[Any], desc: str = "Processing"):
-        self._tqdm = tqdm(iterable, desc=desc, ncols=100, leave=False)
+        self._tqdm = tqdm(iterable, desc=desc, ncols=100, leave=False, dynamic_ncols=True)
 
     def __iter__(self):
         for item in self._tqdm:
@@ -146,6 +146,10 @@ class Progress:
 
     def close(self):
         self._tqdm.close()
+
+    def write(self, message: str):
+        """Print a message above the progress bar on its own line."""
+        self._tqdm.write(message)
 
 
 def timeit(func):

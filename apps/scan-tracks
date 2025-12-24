@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Repository convenience wrapper for vid-mkv-clean.
+# Repository convenience wrapper for scan-tracks (vid_mkv_scan).
 # Activates the local virtualenv if present, loads YAML via common.shared.loader,
 # and executes the underlying Python workflow.
 
@@ -18,22 +18,25 @@ fi
 export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 
 CONFIG_PATH="${1:-$ROOT_DIR/configs/config.yaml}"
-CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_mkv_clean "$CONFIG_PATH")"
+CONFIG_PAYLOAD="$("$PYTHON_BIN" -m common.shared.loader vid_mkv_scan "$CONFIG_PATH")"
 
 "$PYTHON_BIN" - "$CONFIG_PAYLOAD" <<'PY'
 import base64
 import json
 import importlib
 import sys
+import logging
 from pathlib import Path
 
 from common.base.logging import setup_logging
 
 cfg = json.loads(base64.b64decode(sys.argv[1]).decode("utf-8"))
 logging_cfg = cfg.pop("__logging__", {}) or {}
-output_root_val = cfg.get("__output_root__") or cfg.get("output_root")
-output_root = Path(output_root_val).expanduser() if output_root_val else None
-output_dir = Path(cfg["output_dir"]).expanduser() if cfg.get("output_dir") else output_root
+output_root_val = cfg.get("tracks_root") or cfg.get("__output_root__") or cfg.get("output_root")
+output_root = Path(output_root_val) if output_root_val else None
+output_dir = Path(cfg["output_dir"]) if cfg.get("output_dir") else (
+    output_root if output_root else None
+)
 log_dir_override = (output_dir or output_root) / "logs" if (output_dir or output_root) else None
 
 use_rich = logging_cfg.get("use_rich")
@@ -53,31 +56,23 @@ setup_logging(
     file_prefix=logging_cfg.get("file_prefix"),
 )
 
-mkv_module = importlib.import_module("video.mkv_clean")
-vid_mkv_clean = mkv_module.vid_mkv_clean
-resolve_tracks_csvs = mkv_module.resolve_tracks_csvs
+log = logging.getLogger("vid_mkv_scan")
+log.info(
+    "Config loaded for vid_mkv_scan (roots=%s, output_dir=%s, output_root=%s, dry_run=%s, batch_size=%s)",
+    cfg.get("roots"),
+    output_dir,
+    output_root,
+    cfg.get("dry_run"),
+    cfg.get("batch_size"),
+)
 
-roots = [Path(p).expanduser() for p in cfg.get("roots", [])]
-if not roots:
-    raise SystemExit("vid_mkv_clean config requires at least one root")
+vid_mkv_scan = importlib.import_module("video.scanners.scan_tracks").vid_mkv_scan
 
-definition_override = cfg.get("definition")
-csv_parts = cfg.get("csv_part") or []
-
-if definition_override:
-    targets = [Path(definition_override).expanduser()]
-else:
-    part_sequence = csv_parts if csv_parts else None
-    targets = resolve_tracks_csvs(roots, output_root, part_sequence)
-    if not targets:
-        raise SystemExit("Could not locate scan_mkv track CSVs for the requested configuration.")
-
-for definition_path in targets:
-    vid_mkv_clean(
-        def_file=definition_path,
-        roots=roots,
-        output_dir=output_dir,
-        output_root=output_root,
-        dry_run=bool(cfg.get("dry_run", False)),
-    )
+vid_mkv_scan(
+    roots=[Path(p) for p in cfg.get("roots", [])],
+    output_dir=output_dir,
+    output_root=output_root,
+    dry_run=bool(cfg.get("dry_run", False)),
+    batch_size=cfg.get("batch_size"),
+)
 PY

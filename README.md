@@ -34,14 +34,14 @@ config path as the first argument to override:
 ./apps/vid-mkv-clean                # uses configs/config.yaml (task: vid_mkv_clean)
 ./apps/vid-mkv-extract-subs         # extract subtitle tracks from mkv_scan reports
 ./apps/vid-srt-clean                # remove non-target language blocks from SRT files
-./apps/vid-mkv-scan custom_config.yaml
+./apps/scan-tracks custom_config.yaml
 ./apps/vid-hevc-convert             # transcode non-HEVC MKVs via mkv_scan_non_hevc reports
 ```
 
-If you install the project (`pip install -e .`), the commands `vid-mkv-scan`,
+If you install the project (`pip install -e .`), the commands `scan-tracks`,
 `vid-mkv-clean`, and `vid-rename` will be available globally and benefit from
 shell tab-completion (via `argcomplete`). Enable completions by running
-`eval "$(register-python-argcomplete vid-mkv-scan)"` (repeat for the remaining
+`eval "$(register-python-argcomplete scan-tracks)"` (repeat for the remaining
 commands or use the global activator).
 
 To validate or inspect a configuration without running a workflow, use the
@@ -82,7 +82,7 @@ All outputs are written under each root's `task_defaults.output_root`
 - `vid-mkv-clean` – remux MKVs based on the latest mkv_scan track export (or an optional CSV override).
 - `vid-mkv-extract-subs` – extract subtitle tracks referenced in mkv_scan track reports.
 - `vid-srt-clean` – scan SRT files and strip subtitle blocks that do not match the configured languages.
-- `vid-mkv-scan` – scan MKVs, export track metadata, name lists, and non-HEVC reports.
+- `scan-tracks` – scan MKVs, export track metadata, name lists, and non-HEVC reports.
 - `vid-rename` – apply edits from the latest mkv_scan name list (rename + metadata).
 - `vid-hevc-convert` – convert MKVs listed in the latest mkv_scan_non_hevc report to HEVC (libx265).
 - `file-scan` – produce a CSV inventory of files/directories for manual editing.

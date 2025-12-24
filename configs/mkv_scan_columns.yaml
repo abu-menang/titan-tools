@@ -1,0 +1,131 @@
+name_list:
+  - key: "type"
+    header: "type"
+    width: 6
+  - key: "name"
+    header: "name"
+    width: 40
+  - key: "edited_name"
+    header: "edited_name"
+    width: 40
+  - key: "title"
+    header: "title"
+    width: 40
+  - key: "edited_title"
+    header: "edited_title"
+    width: 40
+  - key: "path"
+    header: "path"
+    width: 80
+
+track:
+  - key: "tags"
+    header: "tags"
+    width: 24
+  - key: "output_filename"
+    header: "output_filename"
+    width: 60
+  - key: "type"
+    header: "type"
+    width: 10
+  - key: "id"
+    header: "id"
+    width: 6
+  - key: "name"
+    header: "name"
+    width: 40
+  - key: "edited_name"
+    header: "edited_name"
+    width: 40
+  - key: "lang"
+    header: "lang"
+    width: 8
+  - key: "codec"
+    header: "codec"
+    width: 24
+  - key: "default"
+    header: "default"
+    width: 8
+  - key: "forced"
+    header: "forced"
+    width: 8
+  - key: "encoding"
+    header: "encoding"
+    width: 16
+  - key: "input_path"
+    header: "input_path"
+    width: 120
+  - key: "output_path"
+    header: "output_path"
+    width: 120
+
+failure:
+  - key: "filename"
+    header: "filename"
+    width: 40
+  - key: "failure_reason"
+    header: "failure_reason"
+    width: 60
+  - key: "path"
+    header: "path"
+    width: 120
+
+skipped:
+  - key: "filename"
+    header: "filename"
+    width: 40
+  - key: "skipped_reason"
+    header: "skipped_reason"
+    width: 60
+  - key: "path"
+    header: "path"
+    width: 120
+
+unmatched_subs:
+  - key: "filename"
+    header: "filename"
+    width: 40
+  - key: "path"
+    header: "path"
+    width: 120
+
+good_mkv:
+  - key: "tags"
+    header: "tags"
+    width: 24
+  - key: "output_filename"
+    header: "output_filename"
+    width: 60
+  - key: "type"
+    header: "type"
+    width: 10
+  - key: "id"
+    header: "id"
+    width: 6
+  - key: "name"
+    header: "name"
+    width: 40
+  - key: "edited_name"
+    header: "edited_name"
+    width: 40
+  - key: "lang"
+    header: "lang"
+    width: 8
+  - key: "codec"
+    header: "codec"
+    width: 24
+  - key: "default"
+    header: "default"
+    width: 8
+  - key: "forced"
+    header: "forced"
+    width: 8
+  - key: "encoding"
+    header: "encoding"
+    width: 16
+  - key: "input_path"
+    header: "input_path"
+    width: 120
+  - key: "output_path"
+    header: "output_path"
+    width: 120

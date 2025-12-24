@@ -67,7 +67,7 @@ else:
     part_sequence = csv_parts if csv_parts else None
     targets = resolve_convert_csvs(roots, output_root, part_sequence, sources)
     if not targets:
-        raise SystemExit("Could not locate scan_mkv_ext_subs/scan_non_mkv_ext_subs CSVs for the requested configuration.")
+        raise SystemExit("Could not locate mkv_ext_subs/vid_ext_subs CSVs (legacy scan_* also accepted) for the requested configuration.")
 
 for definition_path in targets:
     vid_mkv_merge_ext_subs(

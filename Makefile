@@ -15,7 +15,7 @@ mkv-clean:
 	./apps/vid-mkv-clean $(CONFIG)
 
 mkv-scan:
-	./apps/vid-mkv-scan $(CONFIG)
+	./apps/scan-tracks $(CONFIG)
 
 rename:
 	./apps/vid-rename $(CONFIG)

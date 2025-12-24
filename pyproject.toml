@@ -55,7 +55,7 @@ dev = [
 # CLI entry points
 [project.scripts]
 titan-config = "common.shared.loader:cli_main"
-vid-mkv-scan = "apps.cli:cli_vid_mkv_scan"
+scan-tracks = "apps.cli:cli_vid_mkv_scan"
 vid-mkv-clean = "apps.cli:cli_vid_mkv_clean"
 vid-mkv-extract-subs = "apps.cli:cli_vid_mkv_extract_subs"
 vid-rename = "apps.cli:cli_vid_rename"
@@ -63,11 +63,25 @@ file-scan = "file.scanner:cli"
 file-rename = "file.renamer:cli"
 vid-hevc-convert = "apps.cli:cli_vid_hevc_convert"
 vid-srt-clean = "apps.cli:cli_vid_srt_clean"
+vid-cleaner = "apps.cli:cli_vid_cleaner"
+vid-conv-cleaner = "apps.cli:cli_vid_conv_cleaner"
+vid-conv-clean = "apps.cli:cli_vid_conv_cleaner"
+clean-01 = "apps.cli:cli_clean_01"
+clean-02 = "apps.cli:cli_clean_02"
+clean-01-hs = "apps.cli:cli_clean_01_hs"
+clean-02-hs = "apps.cli:cli_clean_02_hs"
+clean-03 = "apps.cli:cli_clean_03"
+clean-04 = "apps.cli:cli_clean_04"
+clean-05 = "apps.cli:cli_clean_05"
+clean-06 = "apps.cli:cli_clean_06"
+scan-hevc = "apps.cli:cli_vid_scan_hevc"
+vid-tagger = "apps.cli:cli_vid_tagger"
+vid-tag = "apps.cli:cli_vid_tagger"
 
 # Package discovery
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["common*", "video*", "apps*", "file*"]
+include = ["common*", "video*", "apps*", "file*", "helpers*"]
 exclude = ["tests", "docs", "media", "dist"]
 
 [tool.setuptools]

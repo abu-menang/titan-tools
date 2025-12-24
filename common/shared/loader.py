@@ -18,7 +18,10 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from common.shared.report import ColumnSpec
 
 from common.base.file_io import read_yaml
 
@@ -34,6 +37,10 @@ CONFIGS_DIR = Path(__file__).resolve().parents[2] / "configs"
 
 
 TASK_SCHEMAS: Dict[str, Dict[str, Iterable[str]]] = {
+    "vid_cleaner": {
+        "required": [],
+        "optional": ["roots", "output_dir", "dry_run", "clean_dir_key"],
+    },
     "vid_mkv_clean": {
         "required": [],
         "optional": ["definition", "roots", "output_dir", "dry_run", "csv_part", "tracks_csv_types"],
@@ -63,9 +70,25 @@ TASK_SCHEMAS: Dict[str, Dict[str, Iterable[str]]] = {
         "required": ["roots"],
         "optional": ["output_dir", "dry_run", "batch_size", "lang_vid", "lang_aud", "lang_sub"],
     },
+    "vid_mkv_scan_v2": {
+        "required": ["roots"],
+        "optional": ["output_dir", "dry_run", "batch_size", "lang_vid", "lang_aud", "lang_sub"],
+    },
+    "vid_scan_hevc": {
+        "required": ["roots"],
+        "optional": ["output_dir", "dry_run", "batch_size", "lang_vid", "lang_aud", "lang_sub"],
+    },
     "vid_rename": {
         "required": ["roots"],
         "optional": ["output_dir", "dry_run", "no_meta", "mapping", "csv_part"],
+    },
+    "vid_conv_cleaner": {
+        "required": [],
+        "optional": ["roots", "output_dir", "dry_run"],
+    },
+    "vid_tagger": {
+        "required": ["csv_dir"],
+        "optional": ["tags", "dry_run", "roots"],
     },
     "file_scan": {
         "required": ["roots"],
@@ -87,13 +110,14 @@ FIELD_ALIASES = {
 }
 
 SINGLE_PATH_FIELDS = {"definition", "output_dir", "mapping"}
+SINGLE_PATH_FIELDS = {"definition", "output_dir", "mapping", "csv_dir"}
 MULTI_PATH_FIELDS = {"roots"}
 BOOLEAN_FIELDS = {"dry_run", "no_meta", "overwrite"}
 INTEGER_FIELDS = {"batch_size", "crf", "min_text_chars"}
 INTEGER_LIST_FIELDS = {"csv_part"}
 YES_NO_FIELDS = set()
 LOGGING_ALLOWED_KEYS = {"level", "use_rich", "log_dir", "file_prefix"}
-TASK_DEFAULT_ALLOWED_KEYS = {"roots", "output_root"}
+TASK_DEFAULT_ALLOWED_KEYS = {"roots", "output_root", "tracks_root", "hevc_root"}
 SHARED_ALLOWED_KEYS = {"batch_size", "csv_part"}
 
 YES_VALUES = {"1", "true", "yes", "y", "on"}
@@ -137,17 +161,37 @@ def load_yaml_resource(
     return read_yaml(candidate)
 
 
+def load_output_dirs(config_dir: str | Path | None = None) -> Dict[str, Any]:
+    """
+    Load the output_dirs YAML mapping. Returns an empty dict on error.
+    """
+    try:
+        data = load_yaml_resource("output_dirs", config_dir=config_dir)
+        if data is None:
+            return {}
+        if not isinstance(data, Mapping):
+            raise ValueError("output_dirs YAML must contain a mapping at the root.")
+        return dict(data)
+    except Exception:
+        return {}
+
+
 @dataclass(frozen=True)
 class MediaTypes:
     video_exts: frozenset[str]
     audio_exts: frozenset[str]
     image_exts: frozenset[str]
     doc_exts: frozenset[str]
+    subtitle_exts: frozenset[str]
 
     @property
     def all_known_exts(self) -> frozenset[str]:
         return frozenset(
-            self.video_exts | self.audio_exts | self.image_exts | self.doc_exts
+            self.video_exts
+            | self.audio_exts
+            | self.image_exts
+            | self.doc_exts
+            | self.subtitle_exts
         )
 
 
@@ -199,6 +243,67 @@ def load_media_types(config_path: str | Path | None = None) -> MediaTypes:
         audio_exts=_normalize_exts(_get_list("audio_exts")),
         image_exts=_normalize_exts(_get_list("image_exts")),
         doc_exts=_normalize_exts(_get_list("doc_exts")),
+        subtitle_exts=_normalize_exts(_get_list("subtitle_exts")),
+    )
+
+
+@dataclass(frozen=True)
+class ScanConfig:
+    media_types: MediaTypes
+    columns: Dict[str, List["ColumnSpec"]]
+    report_dir_map: Mapping[str, str]
+    base_dir_map: Dict[str, str]
+
+
+def load_scan_config(log=None) -> ScanConfig:
+    """
+    Centralized loader for video scan configuration pieces:
+      - media types/extensions
+      - mkv_scan_columns (column specs)
+      - output_dirs (report directory mapping)
+
+    Raises SystemExit(1) if required pieces cannot be loaded/validated.
+    """
+    try:
+        media_types = load_media_types()
+    except Exception as exc:
+        if log:
+            log.error("Failed to load media_types.yaml: %s", exc)
+        raise SystemExit(1)
+
+    try:
+        from common.utils.column_utils import load_column_specs  # local import to avoid cycles
+
+        columns = load_column_specs("mkv_scan_columns")
+    except Exception as exc:
+        if log:
+            log.error("Failed to load mkv_scan_columns.yaml: %s", exc)
+        raise SystemExit(1)
+
+    try:
+        output_dirs = load_yaml_resource("output_dirs")
+    except Exception as exc:
+        if log:
+            log.error("Failed to load output_dirs.yaml: %s", exc)
+        raise SystemExit(1)
+
+    if not isinstance(output_dirs, Mapping):
+        if log:
+            log.error("output_dirs.yaml root must be a mapping")
+        raise SystemExit(1)
+
+    report_dir_map = output_dirs.get("reports", {})
+    if not isinstance(report_dir_map, Mapping):
+        if log:
+            log.error("output_dirs.yaml 'reports' must be a mapping")
+        raise SystemExit(1)
+
+    base_dir_map = {k: v for k, v in output_dirs.items() if k != "reports"}
+    return ScanConfig(
+        media_types=media_types,
+        columns=columns,
+        report_dir_map=report_dir_map,
+        base_dir_map=base_dir_map,
     )
 
 
@@ -307,15 +412,27 @@ def load_task_config(task: str, config_path: str | Path | None = None) -> Config
         normalized.pop("output_dir", None)
     if task_defaults.get("output_root"):
         normalized["__output_root__"] = task_defaults["output_root"]
+    for custom_root_key in ("tracks_root", "hevc_root"):
+        if task_defaults.get(custom_root_key):
+            normalized[custom_root_key] = task_defaults[custom_root_key]
+    if "__output_root__" not in normalized and task_defaults.get("hevc_root"):
+        normalized["__output_root__"] = task_defaults["hevc_root"]
     logging_settings = _extract_logging_settings(root_config)
     merged_logging = dict(logging_settings) if logging_settings else {}
     if task_logging_override:
         merged_logging.update(task_logging_override)
+    log_root = (
+        normalized.get("output_dir")
+        or normalized.get("__output_root__")
+        or normalized.get("tracks_root")
+        or task_defaults.get("tracks_root")
+        or task_defaults.get("output_root")
+    )
     merged_logging = _apply_logging_defaults(
         merged_logging,
         primary_root,
         normalized.get("output_dir"),
-        task_defaults.get("output_root") or normalized.get("__output_root__"),
+        log_root,
     )
     if merged_logging:
         normalized["__logging__"] = merged_logging
@@ -437,19 +554,25 @@ def _extract_task_defaults(root: Mapping[str, Any], config_path: Path) -> Dict[s
         defaults["roots"] = normalized_roots
         if normalized_roots:
             defaults["primary_root"] = str(Path(normalized_roots[0]).expanduser().resolve())
+
+    def _resolve_default_path(value: Any, key: str) -> str:
+        if value is None:
+            raise ValueError(f"'{key}' in {TASK_DEFAULTS_KEY} cannot be null in {config_path}")
+        candidate = Path(str(value)).expanduser()
+        if candidate.is_absolute():
+            return str(candidate.resolve())
+        base_root = defaults.get("primary_root")
+        if not base_root:
+            raise ValueError(
+                f"'{key}' in {TASK_DEFAULTS_KEY} is relative but no root path is available to anchor it"
+            )
+        return str((Path(base_root) / candidate).resolve())
+
     if "output_root" in section:
-        output_root = section["output_root"]
-        if output_root is None:
-            raise ValueError(f"'output_root' in {TASK_DEFAULTS_KEY} cannot be null in {config_path}")
-        candidate = Path(str(output_root)).expanduser()
-        if not candidate.is_absolute():
-            base_root = defaults.get("primary_root")
-            if not base_root:
-                raise ValueError(
-                    f"'output_root' in {TASK_DEFAULTS_KEY} is relative but no root path is available to anchor it"
-                )
-            candidate = Path(base_root) / candidate
-        defaults["output_root"] = str(candidate.resolve())
+        defaults["output_root"] = _resolve_default_path(section["output_root"], "output_root")
+    for key in ("tracks_root", "hevc_root"):
+        if key in section:
+            defaults[key] = _resolve_default_path(section[key], key)
     return defaults
 
 
@@ -547,15 +670,11 @@ def _apply_logging_defaults(
         return {}
 
     cfg = dict(logging_cfg)
-    resolved_output_dir = (
-        Path(output_dir).expanduser().resolve()
-        if output_dir
-        else None
-    )
+    resolved_output_dir = Path(output_dir).expanduser().resolve() if output_dir else None
     resolved_output_root = (
         Path(output_root).expanduser().resolve()
         if output_root
-        else (resolved_output_dir.parent if resolved_output_dir else None)
+        else resolved_output_dir
     )
     base_root = (
         resolved_output_root

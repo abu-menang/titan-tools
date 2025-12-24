@@ -1,11 +1,11 @@
 """
 video.mkv_merge_ext_subs
 
-Merge external subtitle definitions produced by vid-mkv-scan into MKV files.
+Merge external subtitle definitions produced by scan-tracks into MKV files.
 
 Supports two CSV sources:
- - scan_mkv_ext_subs_*.csv: existing MKVs with matched external subtitles.
- - scan_non_mkv_ext_subs_*.csv: non-MKV videos to be remuxed to MKV with matched subs.
+ - mkv_ext_subs_*.csv (legacy: scan_mkv_ext_subs_*.csv): existing MKVs with matched external subtitles.
+ - vid_ext_subs_*.csv (legacy: scan_non_mkv_ext_subs_*.csv): non-MKV videos to be remuxed to MKV with matched subs.
 
 The CSV rows follow EXTERNAL_SUB_COLUMNS from video.scan. Track metadata (name/lang/default/forced)
 is applied per row using mkvmerge track options.
@@ -199,18 +199,19 @@ def resolve_convert_ext_subs_csvs(
     """
     Discover external-subtitle merge definitions.
 
-    sources can include: "mkv" (scan_mkv_ext_subs), "non_mkv" (scan_non_mkv_ext_subs).
-    If omitted, both are searched. Legacy mkv_scan_convert_ext_subs is also supported
-    for backward compatibility.
+    sources can include: "mkv" (mkv_ext_subs), "non_mkv" (vid_ext_subs).
+    If omitted, both are searched. Legacy scan_mkv_ext_subs/scan_non_mkv_ext_subs and
+    mkv_scan_convert_ext_subs are also supported for backward compatibility.
     """
     normalized_sources = {str(s).strip().lower() for s in (sources or ["mkv", "non_mkv"])}
     base_names: List[str] = []
     if "mkv" in normalized_sources:
-        base_names.append("scan_mkv_ext_subs")
-        # legacy
-        base_names.append("mkv_scan_convert_ext_subs")
+        base_names.append("mkv_ext_subs")
+        base_names.append("scan_mkv_ext_subs")  # legacy
+        base_names.append("mkv_scan_convert_ext_subs")  # legacy
     if "non_mkv" in normalized_sources:
-        base_names.append("scan_non_mkv_ext_subs")
+        base_names.append("vid_ext_subs")
+        base_names.append("scan_non_mkv_ext_subs")  # legacy
 
     report_dirs: List[Path] = []
     for root in roots:

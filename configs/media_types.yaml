@@ -41,3 +41,12 @@ doc_exts:
   - ".ppt"
   - ".pptx"
   - ".md"
+
+subtitle_exts:
+  - ".srt"
+  - ".ass"
+  - ".ssa"
+  - ".sub"
+  - ".idx"
+  - ".sup"
+  - ".vtt"

@@ -17,21 +17,22 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, Optional, Type, cast
 
 # ----------------------------------------------------------------------
 # RICH HANDLER CONFIGURATION
 # ----------------------------------------------------------------------
 
 try:
-    from rich.logging import RichHandler
-    from rich.text import Text
+    from rich.logging import RichHandler  # type: ignore
+    from rich.text import Text  # type: ignore
 
     RICH_AVAILABLE = True
-except ImportError:
+except Exception:
     RichHandler = None  # type: ignore[assignment]
     Text = None  # type: ignore[assignment]
     RICH_AVAILABLE = False
+
 
 
 # ----------------------------------------------------------------------
@@ -103,7 +104,7 @@ class EmojiFormatter(logging.Formatter):
 
 if RICH_AVAILABLE and RichHandler is not None and Text is not None:
 
-    class TitanRichHandler(RichHandler):
+    class TitanRichHandler(RichHandler):  # type: ignore[misc]
         """Rich console handler with emoji-enhanced level column."""
 
         def get_level_text(self, record: logging.LogRecord) -> Text:  # type: ignore[override]
@@ -111,7 +112,7 @@ if RICH_AVAILABLE and RichHandler is not None and Text is not None:
             emoji = getattr(record, "level_emoji", "")
             style_name = style.get("rich", "")
 
-            text = Text()
+            text = Text() # type: ignore
             if emoji:
                 text.append(f"{emoji} ", style=style_name or None)
             level_label = record.levelname
@@ -122,7 +123,7 @@ if RICH_AVAILABLE and RichHandler is not None and Text is not None:
             return text
 
 else:  # pragma: no cover - fallback when Rich is unavailable
-    TitanRichHandler = None  # type: ignore[assignment]
+    TitanRichHandler: Optional[Type[logging.Handler]] = None
 
 
 # ----------------------------------------------------------------------
@@ -242,14 +243,7 @@ def setup_logging(
     # Console Handler (Rich or ANSI)
     # ------------------------------------------------------------------
     if resolved_use_rich and TitanRichHandler is not None:
-        console_handler = TitanRichHandler(
-            rich_tracebacks=True,
-            markup=True,
-            show_time=True,
-            show_level=True,
-            show_path=False,
-            log_time_format="[%X]",
-        )
+        console_handler = TitanRichHandler()
         logger.rich_enabled = True
     else:
         console_handler = logging.StreamHandler(sys.stdout)

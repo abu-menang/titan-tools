@@ -14,8 +14,8 @@ shared loader utility.
   before executing.
 
 ```bash
-./apps/vid-mkv-scan                      # defaults to configs/config.yaml (task: vid_mkv_scan)
-./apps/vid-mkv-scan custom_config.yaml   # use a custom configuration
+./apps/scan-tracks                      # defaults to configs/config.yaml (task: vid_mkv_scan)
+./apps/scan-tracks custom_config.yaml   # use a custom configuration
 ./apps/vid-hevc-convert                  # convert non-HEVC MKVs using mkv_scan_non_hevc exports
 ```
 
@@ -30,7 +30,7 @@ python -m common.shared.loader vid_rename configs/config.yaml --format json
 | Command        | Required keys | Optional keys |
 |----------------|----------------|----------------|
 | `vid-mkv-clean` | *(none)*       | `definition`, `csv_part`, `roots`, `dry_run` |
-| `vid-mkv-scan`  | `roots`        | `dry_run`, `batch_size` |
+| `scan-tracks`  | `roots`        | `dry_run`, `batch_size` |
 | `vid-rename`    | `roots`        | `dry_run`, `no_meta`, `mapping`, `csv_part` |
 | `file-scan`     | `roots`        | `base_name`, `batch_size` |
 | `file-rename`   | `roots`        | `base_name`, `dry_run`, `csv_part` |
@@ -54,7 +54,7 @@ All tools write logs and generated artifacts beneath each root's `output_root`
 
 ## Scan summary file
 
-When you run `vid-mkv-scan` a human-readable summary is produced alongside the
+When you run `scan-tracks` a human-readable summary is produced alongside the
 CSV exports. It is written to the same `output_root` and is named like:
 
 ```

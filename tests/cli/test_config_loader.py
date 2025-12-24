@@ -249,6 +249,41 @@ def test_load_task_config_hevc_convert(tmp_path: Path) -> None:
     assert config.get("preset") is None
 
 
+def test_task_defaults_custom_roots(tmp_path: Path) -> None:
+    defaults = (
+        f"roots:\n  - '{tmp_path}'\n"
+        "tracks_root: './track_reports'\n"
+        "hevc_root: './hevc_reports'\n"
+    )
+    hevc_root = tmp_path / "hevc_reports"
+
+    scan_cfg = _write_config(
+        tmp_path,
+        "custom_tracks.yaml",
+        _wrap_task_config(
+            "vid_mkv_scan",
+            "dry_run: false\n",
+            defaults_body=defaults,
+        ),
+    )
+    scan_config = load_task_config("vid_mkv_scan", scan_cfg)
+    assert scan_config["tracks_root"] == str((tmp_path / "track_reports").resolve())
+
+    hevc_cfg = _write_config(
+        tmp_path,
+        "custom_hevc.yaml",
+        _wrap_task_config(
+            "vid_scan_hevc",
+            "dry_run: false\n",
+            defaults_body=defaults,
+        ),
+    )
+    hevc_config = load_task_config("vid_scan_hevc", hevc_cfg)
+    assert hevc_config["hevc_root"] == str((tmp_path / "hevc_reports").resolve())
+    logging_cfg = hevc_config.get("__logging__", {})
+    assert logging_cfg.get("log_dir") == str((hevc_root / "logs").resolve())
+
+
 def test_load_task_config_logging_override(tmp_path: Path) -> None:
     output_root = tmp_path / "reports"
     defaults = (

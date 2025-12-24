@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from video.scan import _build_external_subtitle_rows, _extract_track_rows
+from video.scanners.scan_tracks import _build_external_subtitle_rows, _extract_track_rows
 
 
 def test_extract_track_rows_generates_expected_fields() -> None:
@@ -55,22 +55,31 @@ def test_extract_track_rows_generates_expected_fields() -> None:
     subtitle_row = rows[2]
 
     assert video_row["path"] == "/media/example.mkv"
+    assert video_row["id"] == "0"
     assert video_row["filename"] == "example.mkv"
     assert video_row["type"] == "video"
     assert video_row["width"] == "1920"
     assert video_row["height"] == "1080"
-    assert video_row["default"] == "true"
-    assert video_row["forced"] == "false"
+    assert video_row["default"] == "yes"
+    assert video_row["forced"] == "no"
     assert video_row["edited_name"] == "example"
+    assert video_row["encoding"] == ""
 
     assert audio_row["type"] == "audio"
+    assert audio_row["id"] == "1"
     assert audio_row["channels"] == "2"
     assert audio_row["sample_rate"] == "48000"
     assert audio_row["edited_name"] == "JPN (A_AAC)"
+    assert audio_row["default"] == "yes"
+    assert audio_row["forced"] == "no"
+    assert audio_row["encoding"] == ""
 
     assert subtitle_row["type"] == "subtitles"
+    assert subtitle_row["id"] == "2"
     assert subtitle_row["lang"] == "eng"
     assert subtitle_row["edited_name"] == "ENG (S_TEXT/ASS)"
+    assert subtitle_row["default"] == "no"
+    assert subtitle_row["forced"] == "no"
 
 
 def test_build_external_subtitle_rows_matches_with_language_suffix(tmp_path: Path) -> None:
