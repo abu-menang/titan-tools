@@ -24,6 +24,8 @@ from common.utils.track_utils import (
     build_track_ids,
     build_track_metadata,
     compute_track_differences,
+    current_mkv_title,
+    desired_mkv_title,
     get_mkvmerge_info,
     load_tracks_from_csv,
     prepare_track_plan,
@@ -228,8 +230,13 @@ def clean_with_tracks_csv(
 
             needs_clean, reasons = compute_track_differences(current_info, plan)
             reasons.extend(safety_notes)
+            desired_title = desired_mkv_title(plan)
+            current_title = current_mkv_title(current_info)
+            title_needs_update = bool(desired_title) and desired_title != current_title
+            if title_needs_update:
+                reasons.append("metadata title differs")
 
-            if not needs_clean:
+            if not needs_clean and not title_needs_update:
                 _log_with_progress("info", "✅ %s: already matches track plan.", mkv_path.name)
                 results.append(
                     {
@@ -284,6 +291,8 @@ def clean_with_tracks_csv(
                 track_order_parts = [f"0:{tid}" for tid in video_ids + audio_ids + subtitle_ids_main]
 
                 cmd = ["mkvmerge", "-o", str(cleaned_tmp)]
+                if desired_title:
+                    cmd += ["--title", desired_title]
                 if video_ids:
                     cmd += ["--video-tracks", ",".join(video_ids)]
                 if audio_ids:
@@ -316,7 +325,15 @@ def clean_with_tracks_csv(
                 if track_order_parts:
                     cmd += ["--track-order", ",".join(track_order_parts)]
             else:
-                cmd = build_mkvmerge_cmd(mkv_path, cleaned_tmp, video_ids, audio_ids, subtitle_ids, track_meta)
+                cmd = build_mkvmerge_cmd(
+                    mkv_path,
+                    cleaned_tmp,
+                    video_ids,
+                    audio_ids,
+                    subtitle_ids,
+                    track_meta,
+                    title=desired_title,
+                )
 
             log.debug("Running mkvmerge: %s", " ".join(cmd))
 

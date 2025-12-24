@@ -87,7 +87,7 @@ def extract_tracks(path: Path, payload: dict) -> List[Dict[str, str]]:
             "edited_name": edited_name,
             "lang": str(lang_val).strip() or "und",
             "codec": str(codec_val),
-            "default": flag_string(default_val),
+            "default": "yes",
             "forced": flag_string(forced_val),
             # encoding is meaningful for subtitle tracks only
             "encoding": str(encoding_val) if encoding_val is not None else "",
@@ -208,8 +208,11 @@ def build_mkvmerge_cmd(
     audio_ids: List[str],
     subtitle_ids: List[str],
     track_meta: Dict[str, dict],
+    title: Optional[str] = None,
 ) -> List[str]:
     cmd = ["mkvmerge", "-o", str(output_file)]
+    if title:
+        cmd += ["--title", title]
     if video_ids:
         cmd += ["--video-tracks", ",".join(video_ids)]
     if audio_ids:
@@ -392,6 +395,21 @@ def build_track_metadata(plan: Dict[str, List[dict]]) -> Dict[str, dict]:
             if entry.get("forced") is not None:
                 metadata[tid]["forced"] = bool(entry.get("forced"))
     return metadata
+
+
+def desired_mkv_title(plan: Dict[str, List[dict]]) -> Optional[str]:
+    for entry in plan.get("video", []):
+        edited = (entry.get("edited_name") or "").strip()
+        if edited:
+            return edited
+    return None
+
+
+def current_mkv_title(info: dict) -> str:
+    container = info.get("container") or {}
+    props = container.get("properties") or {}
+    title_val = props.get("title") or props.get("segment_title") or ""
+    return str(title_val or "")
 
 def resolve_tracks_csvs(
     roots: Sequence[Path],

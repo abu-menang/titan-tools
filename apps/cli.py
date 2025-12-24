@@ -388,6 +388,14 @@ def cli_clean_02(argv: Optional[Iterable[str]] = None) -> int:
     return _cli_clean_target(argv, "no_sub_vid_dir", "02_no_sub_vid", "clean_02", extra_tags=["no_sub"])
 
 
+def cli_clean_01_hs(argv: Optional[Iterable[str]] = None) -> int:
+    return _cli_clean_target(argv, "no_sub_mkv_dir", "01_no_sub_mkv", "clean_01_hs", extra_tags=["hard_sub"])
+
+
+def cli_clean_02_hs(argv: Optional[Iterable[str]] = None) -> int:
+    return _cli_clean_target(argv, "no_sub_vid_dir", "02_no_sub_vid", "clean_02_hs", extra_tags=["hard_sub"])
+
+
 def cli_clean_03(argv: Optional[Iterable[str]] = None) -> int:
     return _cli_clean_target(argv, "clean_dir", "03_clean", "clean_03")
 

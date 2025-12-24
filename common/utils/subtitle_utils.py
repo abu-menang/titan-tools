@@ -50,7 +50,7 @@ def match_external_subs(
             matched_subs.add(s.path)
             for tr in s.tracks or [{"type": "subtitles", "lang": "und", "codec": "", "id": "", "name": "", "edited_name": "", "default": "", "forced": "", "encoding": "", "path": str(s.path)}]:
                 base = tr.copy()
-                base["default"] = flag_string(base.get("default", False))
+                base["default"] = "yes"
                 base["forced"] = flag_string(base.get("forced", False))
                 # Assign subtitle track id after existing tracks on the target video
                 base["id"] = _next_track_id(dest_rows + (v.tracks or []))
@@ -64,7 +64,7 @@ def match_external_subs(
         if v.tracks:
             for tr in v.tracks:
                 base = tr.copy()
-                base["default"] = flag_string(base.get("default", False))
+                base["default"] = "yes"
                 base["forced"] = flag_string(base.get("forced", False))
                 base.update({
                     "output_filename": v.path.with_suffix(".mkv").name,

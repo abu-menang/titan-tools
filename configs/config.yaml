@@ -13,8 +13,8 @@ logging:
 
 task_defaults:
   roots:
-    #- "/drive/HYPERION/movies/anime/"
-    - "/drive/ATLAS/series/english/IT - Welcome to Derry/"
+    #- "/drive/ATLAS/series/english/Plur1bus/"
+    - "/drive/ATLAS/series/japanese/Usotoki Rhetoric/"
     #- "/drive/ATLAS/series/test/"
     #- "/drive/HYPERION/movies/chinese/"
   tracks_root: "./00_tracks"

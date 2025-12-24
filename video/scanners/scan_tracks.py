@@ -98,7 +98,6 @@ def vid_mkv_scan(
         if f.is_file() and f.suffix.lower() in MKV_EXTS:
             tags_raw, tags = read_fs_tags(f)
             if tags and "final" in tags:
-                good_mkv_rows.append({"filename": f.name, "tags": tags_raw or "", "path": str(f)})
                 good_mkv_paths.add(f.resolve())
             rp = f.expanduser().resolve()
             tags_by_path[rp] = tags_raw or ""
@@ -180,10 +179,11 @@ def vid_mkv_scan(
     mkv_probe = _probe_list(mkv_files)
     non_mkv_probe = _probe_list(vid_files)
     sub_probe = _probe_list(sub_files)
+    good_mkv_probe = _probe_list(list(good_mkv_paths))
 
     failed_files = [
         {"path": str(r.path), "filename": r.path.name, "failure_reason": r.failure_reason}
-        for r in mkv_probe + non_mkv_probe + sub_probe
+        for r in mkv_probe + non_mkv_probe + sub_probe + good_mkv_probe
         if r.failure_reason
     ]
 
@@ -191,6 +191,7 @@ def vid_mkv_scan(
     mkv_probe = [r for r in mkv_probe if not r.failure_reason]
     non_mkv_probe = [r for r in non_mkv_probe if not r.failure_reason]
     sub_probe = [r for r in sub_probe if not r.failure_reason]
+    good_mkv_probe = [r for r in good_mkv_probe if not r.failure_reason]
 
     def _probe_is_broken(probe: _ProbeResult) -> bool:
         vids = sum(1 for t in probe.tracks if (t.get("type") or "").lower() == "video")
@@ -214,7 +215,7 @@ def vid_mkv_scan(
                 "edited_name": "",
                 "lang": "",
                 "codec": "",
-                "default": "",
+                "default": "yes",
                 "forced": "",
                 "encoding": "",
                 "path": str(path),
@@ -223,6 +224,7 @@ def vid_mkv_scan(
 
     broken_mkv_rows: List[Dict[str, str]] = []
     broken_vid_rows: List[Dict[str, str]] = []
+    good_mkv_rows = [row for r in good_mkv_probe for row in _rows_for_probe(r)]
 
     _kept_mkv: List[_ProbeResult] = []
     for r in mkv_probe:
@@ -333,7 +335,9 @@ def vid_mkv_scan(
     mkv_ext_ok, mkv_ext_issues = classify_tracks(mkv_ext_sub_rows, allowed_vid, allowed_aud, allowed_sub)
     non_mkv_ext_ok, non_mkv_ext_issues = classify_tracks(non_mkv_ext_sub_rows, allowed_vid, allowed_aud, allowed_sub)
 
-    def _split_name_mismatches(rows: List[Dict[str, str]]) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
+    def _split_name_mismatches(
+        rows: List[Dict[str, str]]
+    ) -> Tuple[List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, str]]]:
         grouped: Dict[str, List[Dict[str, str]]] = {}
         for r in rows:
             key = r.get("output_filename") or r.get("filename") or r.get("path") or r.get("input_path") or ""
@@ -344,15 +348,25 @@ def vid_mkv_scan(
 
         ok: List[Dict[str, str]] = []
         mismatched: List[Dict[str, str]] = []
+        mismatch_issues: List[Dict[str, str]] = []
         for items in grouped.values():
             has_mismatch = any(_norm(i.get("name")) != _norm(i.get("edited_name")) for i in items)
-            (mismatched if has_mismatch else ok).extend(items)
-        return ok, mismatched
+            if not has_mismatch:
+                ok.extend(items)
+                continue
+            v = sum(1 for i in items if (i.get("type") or "").lower() == "video")
+            a = sum(1 for i in items if (i.get("type") or "").lower() == "audio")
+            s = sum(1 for i in items if (i.get("type") or "").lower() == "subtitles")
+            if v == 1 and a == 1 and s == 1:
+                mismatched.extend(items)
+            else:
+                mismatch_issues.extend(items)
+        return ok, mismatched, mismatch_issues
 
-    mkv_files_ok, mkv_name_mismatch = _split_name_mismatches(mkv_files_ok)
-    non_mkv_files_ok, non_mkv_name_mismatch = _split_name_mismatches(non_mkv_files_ok)
-    mkv_ext_ok, mkv_ext_name_mismatch = _split_name_mismatches(mkv_ext_ok)
-    non_mkv_ext_ok, non_mkv_ext_name_mismatch = _split_name_mismatches(non_mkv_ext_ok)
+    mkv_files_ok, mkv_name_mismatch, mkv_name_mismatch_issues = _split_name_mismatches(mkv_files_ok)
+    non_mkv_files_ok, non_mkv_name_mismatch, non_mkv_name_mismatch_issues = _split_name_mismatches(non_mkv_files_ok)
+    mkv_ext_ok, mkv_ext_name_mismatch, mkv_ext_name_mismatch_issues = _split_name_mismatches(mkv_ext_ok)
+    non_mkv_ext_ok, non_mkv_ext_name_mismatch, non_mkv_ext_name_mismatch_issues = _split_name_mismatches(non_mkv_ext_ok)
 
     log.info(
         "📦 classification totals: mkv_ok=%d mkv_issues=%d nonmkv_ok=%d nonmkv_issues=%d mkv_ext_ok=%d mkv_ext_issues=%d nonmkv_ext_ok=%d nonmkv_ext_issues=%d good_mkv=%d",
@@ -374,13 +388,36 @@ def vid_mkv_scan(
         len(mkv_ext_name_mismatch),
         len(non_mkv_ext_name_mismatch),
     )
+    log.info(
+        "🧭 name mismatches reclassified: mkv=%d non_mkv=%d ext_sub_mkv=%d ext_sub_vid=%d",
+        len(mkv_name_mismatch_issues),
+        len(non_mkv_name_mismatch_issues),
+        len(mkv_ext_name_mismatch_issues),
+        len(non_mkv_ext_name_mismatch_issues),
+    )
 
     written_reports: Dict[str, Dict[str, object]] = {}
     report_rows: Dict[str, List[Dict[str, str]]] = {}
 
+    def _row_sort_key(row: Dict[str, str]) -> tuple[tuple[int, object], str]:
+        id_val = str(row.get("id") or "")
+        if id_val.isdigit():
+            id_key: tuple[int, object] = (0, int(id_val))
+        else:
+            id_key = (1, id_val)
+        name_key = (
+            row.get("output_filename")
+            or row.get("filename")
+            or row.get("path")
+            or row.get("input_path")
+            or ""
+        )
+        return (id_key, name_key)
+
     def _write(name: str, rows: List[List[Dict[str, str]]], cols: List[ColumnSpec]):
         if not rows or not write_csv_file:
             return
+        rows = [sorted(group, key=_row_sort_key) for group in rows]
         total_rows = sum(len(r) for r in rows)
         if total_rows == 0:
             return
@@ -451,7 +488,7 @@ def vid_mkv_scan(
             a = sum(1 for i in items if (i.get("type") or "").lower() == "audio")
             s = sum(1 for i in items if (i.get("type") or "").lower() == "subtitles")
             lang_mismatch = False
-            # Only consider audio/subtitles for lang mismatch here
+            # Only consider audio/subtitles for lang mismatch here.
             for i in items:
                 ttype = (i.get("type") or "").lower()
                 if ttype == "audio" and not _lang_ok(i.get("lang", ""), allowed_aud):
@@ -461,28 +498,42 @@ def vid_mkv_scan(
                     lang_mismatch = True
                     break
 
-            issues_hit: List[str] = []
-            if v == 1 and a == 1 and s == 0:
-                issues_hit.append(name("0_subs"))
-            if v == 1 and a == 1 and s > 1:
-                issues_hit.append(name("multi_subs"))
-            if v > 1 and a == 1 and s == 1:
-                issues_hit.append(name("multi_vids"))
-            if v == 1 and a > 1 and s == 1:
-                issues_hit.append(name("multi_aud"))
-            if v == 1 and a == 1 and s == 1 and lang_mismatch:
-                issues_hit.append(name("lang_mismatch"))
+            multi_flags: List[str] = []
+            if v > 1:
+                multi_flags.append(name("multi_vids"))
+            if a > 1:
+                multi_flags.append(name("multi_aud"))
+            if s > 1:
+                multi_flags.append(name("multi_subs"))
 
-            if len(issues_hit) > 1:
+            if len(multi_flags) > 1:
                 buckets[name("multi_issue")].extend(items)
-            elif issues_hit:
-                buckets[issues_hit[0]].extend(items)
+                continue
+            if len(multi_flags) == 1:
+                buckets[multi_flags[0]].extend(items)
+                continue
+
+            if v == 1 and a == 1 and s == 0:
+                buckets[name("0_subs")].extend(items)
+            elif v == 1 and a == 1 and s == 1 and lang_mismatch:
+                buckets[name("lang_mismatch")].extend(items)
         return buckets
 
     mkv_issue_buckets = _bucket_issue_files(mkv_files_issues, "mkv")
     vid_issue_buckets = _bucket_issue_files(non_mkv_files_issues, "vid")
     mkv_ext_issue_buckets = _bucket_issue_files(mkv_ext_issues, "mkv", prefix="ext_sub_")
     vid_ext_issue_buckets = _bucket_issue_files(non_mkv_ext_issues, "vid", prefix="ext_sub_")
+
+    def _merge_buckets(target: Dict[str, List[Dict[str, str]]], extra: Dict[str, List[Dict[str, str]]]) -> None:
+        for name, rows in extra.items():
+            if not rows:
+                continue
+            target.setdefault(name, []).extend(rows)
+
+    _merge_buckets(mkv_issue_buckets, _bucket_issue_files(mkv_name_mismatch_issues, "mkv"))
+    _merge_buckets(vid_issue_buckets, _bucket_issue_files(non_mkv_name_mismatch_issues, "vid"))
+    _merge_buckets(mkv_ext_issue_buckets, _bucket_issue_files(mkv_ext_name_mismatch_issues, "mkv", prefix="ext_sub_"))
+    _merge_buckets(vid_ext_issue_buckets, _bucket_issue_files(non_mkv_ext_name_mismatch_issues, "vid", prefix="ext_sub_"))
 
     for name, rows in {**mkv_issue_buckets, **vid_issue_buckets, **mkv_ext_issue_buckets, **vid_ext_issue_buckets}.items():
         if rows:

@@ -13,6 +13,11 @@ anime:
   lang_aud: ["jpn"]
   lang_sub: ["eng"]
 
+ecchi:
+  lang_vid: []
+  lang_aud: ["jpn"]
+  lang_sub: ["eng"]
+
 chinese:
   lang_vid: []
   lang_aud: ["chi"]

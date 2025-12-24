@@ -27,6 +27,8 @@ from common.utils.track_utils import (
     build_track_ids,
     build_track_metadata,
     compute_track_differences,
+    current_mkv_title,
+    desired_mkv_title,
     get_mkvmerge_info,
     load_track_definitions,
     prepare_track_plan,
@@ -127,8 +129,13 @@ def vid_mkv_clean(
             continue
         needs_clean, reasons = compute_track_differences(current_info, plan)
         reasons.extend(safety_notes)
+        desired_title = desired_mkv_title(plan)
+        current_title = current_mkv_title(current_info)
+        title_needs_update = bool(desired_title) and desired_title != current_title
+        if title_needs_update:
+            reasons.append("metadata title differs")
 
-        if not needs_clean:
+        if not needs_clean and not title_needs_update:
             log.info(f"✅ {mkv_path.name}: already matches track plan.")
             results.append({
                 "name": mkv_path.name,
@@ -146,7 +153,15 @@ def vid_mkv_clean(
         if cleaned_tmp.exists():
             cleaned_tmp.unlink()
 
-        cmd = build_mkvmerge_cmd(mkv_path, cleaned_tmp, video_ids, audio_ids, subtitle_ids, track_meta)
+        cmd = build_mkvmerge_cmd(
+            mkv_path,
+            cleaned_tmp,
+            video_ids,
+            audio_ids,
+            subtitle_ids,
+            track_meta,
+            title=desired_title,
+        )
         log.debug(f"Running mkvmerge: {' '.join(cmd)}")
 
         original_size = mkv_path.stat().st_size

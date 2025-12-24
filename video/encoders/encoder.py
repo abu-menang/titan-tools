@@ -14,7 +14,7 @@ import argparse
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from common.base.fs import ensure_dir
 from common.base.logging import get_logger
@@ -38,9 +38,15 @@ def _load_defaults(config_path: Optional[Path]) -> Tuple[List[Path], Path, str]:
         if not isinstance(task_defaults, dict):
             task_defaults = {}
 
+    roots_raw = task_defaults.get("roots")
+    roots_iter: Sequence[object] = (
+        roots_raw
+        if isinstance(roots_raw, Sequence) and not isinstance(roots_raw, (str, bytes))
+        else []
+    )
     roots = [
         Path(str(p)).expanduser().resolve()
-        for p in task_defaults.get("roots") or []
+        for p in roots_iter
         if str(p).strip()
     ]
 

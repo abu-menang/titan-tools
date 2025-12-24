@@ -43,7 +43,7 @@ def vid_mkv_scan_hevc(
     write_csv_file: bool = True,
     dry_run: bool = False,
     batch_size: Optional[int] = None,  # kept for parity; unused
-) -> List[Dict[str, object]]:
+) -> List[Dict[str, str]]:
     roots = [Path(p).expanduser() for p in (roots or [Path.cwd()])]
     resolved_roots = [p.resolve() for p in roots]
     log.info("🎬 === Setup (Non-HEVC) ===")
@@ -143,8 +143,8 @@ def vid_mkv_scan_hevc(
     _apply_tags(non_mkv_ext_sub_rows)
 
     # Non-HEVC detection
-    def _non_hevc(rows: List[Dict[str, str]]) -> List[Dict[str, object]]:
-        out: List[Dict[str, object]] = []
+    def _non_hevc(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        out: List[Dict[str, str]] = []
         by_file: Dict[str, Set[str]] = {}
         for r in rows:
             if (r.get("type") or "").lower() != "video":
